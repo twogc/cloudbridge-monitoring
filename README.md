@@ -1,4 +1,4 @@
-# 📊 CloudBridge Monitoring and Metrics
+# CloudBridge Monitoring and Metrics
 
 Система мониторинга и метрик для CloudBridge Relay с SLO мониторингом, алертингом и визуализацией.
 
@@ -77,7 +77,7 @@ graph TB
 - **Функции**: Alert routing, notification channels
 - **Конфигурация**: `alertmanager/`
 
-## 🚀 Быстрый старт
+## Быстрый старт
 
 ### **Развертывание мониторинга**
 
@@ -111,7 +111,7 @@ kubectl port-forward -n cloudbridge-monitoring svc/grafana 3000:3000
 kubectl port-forward -n cloudbridge-monitoring svc/alertmanager 9093:9093
 ```
 
-## 🔧 Конфигурация
+## Конфигурация
 
 ### **Prometheus конфигурация**
 
@@ -241,7 +241,7 @@ groups:
       description: "P2P percentage is {{ $value }}%, threshold is 60%"
 ```
 
-## 📊 Ключевые метрики
+## Ключевые метрики
 
 ### **Relay метрики**
 
@@ -329,7 +329,7 @@ groups:
       description: "Error rate is {{ $value }} errors/sec"
 ```
 
-## 📈 SLO Monitoring
+## SLO Monitoring
 
 ### **SLO Configuration**
 
@@ -366,7 +366,7 @@ error_budget:
   burn_rate: 0.001  # 0.1% per hour
 ```
 
-## 🧪 Тестирование
+## Тестирование
 
 ### **Monitoring тесты**
 
@@ -388,7 +388,7 @@ error_budget:
 ./scripts/load-test-monitoring.sh
 ```
 
-## 📈 Масштабирование
+## Масштабирование
 
 ### **Горизонтальное масштабирование**
 
@@ -413,7 +413,7 @@ resources:
     memory: "8Gi"
 ```
 
-## 🔄 Обновления
+## Обновления
 
 ### **Rolling update**
 
@@ -432,7 +432,7 @@ kubectl set image deployment/grafana grafana=grafana/grafana:10.0.0 -n cloudbrid
 kubectl rollout undo deployment/prometheus -n cloudbridge-monitoring
 ```
 
-## 📚 Документация
+## Документация
 
 - [Prometheus Configuration](docs/prometheus-config.md)
 - [Grafana Dashboards](docs/grafana-dashboards.md)
@@ -440,18 +440,18 @@ kubectl rollout undo deployment/prometheus -n cloudbridge-monitoring
 - [SLO Monitoring](docs/slo-monitoring.md)
 - [Troubleshooting](docs/troubleshooting.md)
 
-## 🤝 Участие в разработке
+## Участие в разработке
 
 1. Fork репозитория
 2. Создайте feature branch
 3. Внесите изменения
 4. Создайте Pull Request
 
-## 📄 Лицензия
+## Лицензия
 
 MIT License - см. [LICENSE](LICENSE) файл.
 
-## 🆘 Поддержка
+## Поддержка
 
 - **Issues**: [GitHub Issues](https://github.com/2gc-dev/cloudbridge-monitoring/issues)
 - **Discussions**: [GitHub Discussions](https://github.com/2gc-dev/cloudbridge-monitoring/discussions)
