@@ -154,23 +154,20 @@ func (qp *QUICProbe) probeQUIC(target, pop string) {
 func (qp *QUICProbe) start() {
 	ticker := time.NewTicker(qp.interval)
 	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ticker.C:
-			for _, target := range qp.targets {
-				// Определяем PoP по target
-				pop := "unknown"
-				if target == "moscow.2gc.ru:443" {
-					pop = "moscow"
-				} else if target == "frankfurt.2gc.ru:443" {
-					pop = "frankfurt"
-				} else if target == "amsterdam.2gc.ru:443" {
-					pop = "amsterdam"
-				}
-
-				go qp.probeQUIC(target, pop)
+	
+	for range ticker.C {
+		for _, target := range qp.targets {
+			// Определяем PoP по target
+			pop := "unknown"
+			if target == "moscow.2gc.ru:443" {
+				pop = "moscow"
+			} else if target == "frankfurt.2gc.ru:443" {
+				pop = "frankfurt"
+			} else if target == "amsterdam.2gc.ru:443" {
+				pop = "amsterdam"
 			}
+			
+			go qp.probeQUIC(target, pop)
 		}
 	}
 }

@@ -1,0 +1,85 @@
+name: QUIC Probe Simple Tests
+
+on:
+  push:
+    paths:
+      - 'exporters/**'
+  pull_request:
+    paths:
+      - 'exporters/**'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.25.3'
+        cache: true
+    
+    - name: Install dependencies
+      run: |
+        cd exporters
+        go mod download
+        go mod verify
+    
+    - name: Run tests
+      run: |
+        cd exporters
+        go test -v ./...
+    
+    - name: Run tests with race detection
+      run: |
+        cd exporters
+        go test -race -v ./...
+    
+    - name: Run benchmarks
+      run: |
+        cd exporters
+        go test -bench=. -benchmem ./...
+    
+    - name: Build binary
+      run: |
+        cd exporters
+        go build -o quic-probe .
+    
+    - name: Test binary
+      run: |
+        cd exporters
+        ./quic-probe --help || true
+        timeout 5s ./quic-probe -targets=localhost:443 -interval=1s -port=8080 || true
+
+  lint:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.25.3'
+        cache: true
+    
+    - name: Install staticcheck
+      run: go install honnef.co/go/tools/cmd/staticcheck@latest
+    
+    - name: Run staticcheck
+      run: |
+        cd exporters
+        ~/go/bin/staticcheck ./...
+    
+    - name: Run go vet
+      run: |
+        cd exporters
+        go vet ./...
+    
+    - name: Format check
+      run: |
+        cd exporters
+        go fmt ./...
+        git diff --exit-code
