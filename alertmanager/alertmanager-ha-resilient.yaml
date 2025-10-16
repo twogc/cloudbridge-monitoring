@@ -101,9 +101,6 @@ spec:
       - name: alertmanager-config
         configMap:
           name: alertmanager-ha-config
-      - name: alertmanager-storage
-        persistentVolumeClaim:
-          claimName: alertmanager-storage
   volumeClaimTemplates:
   - metadata:
       name: alertmanager-storage

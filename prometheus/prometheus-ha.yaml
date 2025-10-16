@@ -136,7 +136,7 @@ data:
 
     # Remote write для долговременного хранения
     remote_write:
-    - url: "http://victoria-metrics-vmagent.cloudbridge-monitoring.svc.cluster.local:8429/api/v1/write"
+    - url: "http://victoria-metrics.cloudbridge-monitoring.svc.cluster.local:8428/api/v1/write"
       send_exemplars: true
       queue_config:
         max_samples_per_send: 1000

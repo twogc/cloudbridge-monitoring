@@ -1,0 +1,160 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: prometheus-2
+  namespace: cloudbridge-monitoring
+  labels:
+    app: prometheus-2
+    app.kubernetes.io/component: monitoring
+    app.kubernetes.io/name: prometheus
+    app.kubernetes.io/part-of: cloudbridge-relay
+spec:
+  serviceName: prometheus-2
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prometheus-2
+  template:
+    metadata:
+      labels:
+        app: prometheus-2
+    spec:
+      serviceAccountName: prometheus
+      securityContext:
+        runAsUser: 65534
+        runAsGroup: 65534
+        fsGroup: 65534
+      # Anti-affinity для распределения по нодам и зонам
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchLabels:
+                app: prometheus
+            topologyKey: kubernetes.io/hostname
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchLabels:
+                  app: prometheus
+              topologyKey: topology.kubernetes.io/zone
+      # Topology spread constraints
+      topologySpreadConstraints:
+      - maxSkew: 1
+        topologyKey: kubernetes.io/hostname
+        whenUnsatisfiable: DoNotSchedule
+        labelSelector:
+          matchLabels:
+            app: prometheus-2
+      - maxSkew: 1
+        topologyKey: topology.kubernetes.io/zone
+        whenUnsatisfiable: ScheduleAnyway
+        labelSelector:
+          matchLabels:
+            app: prometheus-2
+      containers:
+      - name: prometheus
+        image: prom/prometheus:v2.45.0
+        args:
+          - '--config.file=/etc/prometheus/prometheus.yml'
+          - '--storage.tsdb.path=/prometheus/'
+          - '--web.console.libraries=/etc/prometheus/console_libraries'
+          - '--web.console.templates=/etc/prometheus/consoles'
+          - '--storage.tsdb.retention.time=15d'
+          - '--web.enable-lifecycle'
+          - '--query.max-concurrency=20'
+          - '--query.max-samples=1000000'
+          - '--query.lookback-delta=5m'
+          - '--query.timeout=30s'
+          - '--web.external-url=http://prometheus-2.cloudbridge-monitoring.svc.cluster.local:9090'
+          - '--web.route-prefix=/'
+          - '--storage.tsdb.min-block-duration=2h'
+          - '--storage.tsdb.max-block-duration=25h'
+          - '--storage.tsdb.retention.size=10GB'
+          - '--web.max-connections=512'
+          - '--web.read-timeout=30s'
+          - '--web.timeout=30s'
+          - '--web.enable-remote-write-receiver'
+          - '--web.enable-remote-read'
+          - '--remote-write.url=http://victoria-metrics.cloudbridge-monitoring.svc.cluster.local:8428/api/v1/write'
+          - '--remote-write.remote-timeout=30s'
+          - '--remote-write.max-queue-capacity=10000'
+          - '--remote-write.max-samples-per-send=1000'
+          - '--remote-write.max-retries=10'
+          - '--remote-write.retry-min-backoff=30ms'
+          - '--remote-write.retry-max-backoff=100ms'
+          - '--remote-write.retry-on-http-429'
+          - '--remote-write.retry-on-rate-limit'
+          - '--remote-write.batch-send-deadline=5s'
+          - '--remote-write.max-queue-capacity=10000'
+          - '--remote-write.max-samples-per-send=1000'
+          - '--remote-write.max-retries=10'
+          - '--remote-write.retry-min-backoff=30ms'
+          - '--remote-write.retry-max-backoff=100ms'
+          - '--remote-write.retry-on-http-429'
+          - '--remote-write.retry-on-rate-limit'
+          - '--remote-write.batch-send-deadline=5s'
+        ports:
+        - containerPort: 9090
+          name: http
+        resources:
+          requests:
+            cpu: 500m
+            memory: 2Gi
+          limits:
+            cpu: 2
+            memory: 4Gi
+        volumeMounts:
+        - name: prometheus-storage
+          mountPath: /prometheus
+        - name: prometheus-config
+          mountPath: /etc/prometheus
+        - name: prometheus-rules
+          mountPath: /etc/prometheus/rules
+        livenessProbe:
+          httpGet:
+            path: /-/healthy
+            port: 9090
+          initialDelaySeconds: 30
+          periodSeconds: 15
+        readinessProbe:
+          httpGet:
+            path: /-/ready
+            port: 9090
+          initialDelaySeconds: 5
+          periodSeconds: 5
+      volumes:
+      - name: prometheus-config
+        configMap:
+          name: prometheus-config
+      - name: prometheus-rules
+        configMap:
+          name: prometheus-rules
+  volumeClaimTemplates:
+  - metadata:
+      name: prometheus-storage
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      resources:
+        requests:
+          storage: 50Gi
+      storageClassName: fast-ssd
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus-2
+  namespace: cloudbridge-monitoring
+  labels:
+    app: prometheus-2
+spec:
+  selector:
+    app: prometheus-2
+  ports:
+  - port: 9090
+    targetPort: 9090
+    protocol: TCP
+    name: http
+  type: ClusterIP

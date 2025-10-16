@@ -1,0 +1,229 @@
+# NetworkPolicies для CloudBridge Monitoring - Исправленная версия
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: prometheus-netpol
+  namespace: cloudbridge-monitoring
+spec:
+  podSelector:
+    matchLabels:
+      app: prometheus
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  # Разрешить доступ только от Grafana
+  - from:
+    - podSelector:
+        matchLabels:
+          app: grafana
+    ports:
+    - protocol: TCP
+      port: 9090
+  # Разрешить доступ от экспортеров
+  - from:
+    - podSelector:
+        matchLabels:
+          app: node-exporter
+    - podSelector:
+        matchLabels:
+          app: kube-state-metrics
+    - podSelector:
+        matchLabels:
+          app: blackbox-exporter
+    - podSelector:
+        matchLabels:
+          app: quic-probe
+    ports:
+    - protocol: TCP
+      port: 9090
+  egress:
+  # Разрешить исходящие соединения к VictoriaMetrics
+  - to:
+    - podSelector:
+        matchLabels:
+          app: victoria-metrics
+    ports:
+    - protocol: TCP
+      port: 8428
+  # Разрешить исходящие соединения к targets
+  - to:
+    - podSelector:
+        matchLabels:
+          app: node-exporter
+    - podSelector:
+        matchLabels:
+          app: kube-state-metrics
+    - podSelector:
+        matchLabels:
+          app: blackbox-exporter
+    - podSelector:
+        matchLabels:
+          app: quic-probe
+    ports:
+    - protocol: TCP
+      port: 9100
+    - protocol: TCP
+      port: 8080
+    - protocol: TCP
+      port: 8081
+    - protocol: TCP
+      port: 8082
+    - protocol: TCP
+      port: 8083
+    - protocol: TCP
+      port: 8084
+    - protocol: TCP
+      port: 8085
+    - protocol: TCP
+      port: 8086
+    - protocol: TCP
+      port: 8087
+    - protocol: TCP
+      port: 8088
+    - protocol: TCP
+      port: 8089
+    - protocol: TCP
+      port: 8090
+    - protocol: TCP
+      port: 8091
+    - protocol: TCP
+      port: 8092
+    - protocol: TCP
+      port: 8093
+    - protocol: TCP
+      port: 8094
+    - protocol: TCP
+      port: 8095
+    - protocol: TCP
+      port: 8096
+    - protocol: TCP
+      port: 8097
+    - protocol: TCP
+      port: 8098
+    - protocol: TCP
+      port: 8099
+    - protocol: TCP
+      port: 8100
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: grafana-netpol
+  namespace: cloudbridge-monitoring
+spec:
+  podSelector:
+    matchLabels:
+      app: grafana
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  # Разрешить доступ от внешних пользователей
+  - from: []
+    ports:
+    - protocol: TCP
+      port: 3000
+  egress:
+  # Разрешить исходящие соединения к Prometheus
+  - to:
+    - podSelector:
+        matchLabels:
+          app: prometheus
+    ports:
+    - protocol: TCP
+      port: 9090
+  # Разрешить исходящие соединения к Alertmanager
+  - to:
+    - podSelector:
+        matchLabels:
+          app: alertmanager
+    ports:
+    - protocol: TCP
+      port: 9093
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: alertmanager-netpol
+  namespace: cloudbridge-monitoring
+spec:
+  podSelector:
+    matchLabels:
+      app: alertmanager
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  # Разрешить доступ от Prometheus
+  - from:
+    - podSelector:
+        matchLabels:
+          app: prometheus
+    ports:
+    - protocol: TCP
+      port: 9093
+  egress:
+  # Разрешить исходящие соединения к внешним сервисам уведомлений
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 443
+    - protocol: TCP
+      port: 587
+    - protocol: TCP
+      port: 465
+    - protocol: TCP
+      port: 25
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: victoria-metrics-netpol
+  namespace: cloudbridge-monitoring
+spec:
+  podSelector:
+    matchLabels:
+      app: victoria-metrics
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  # Разрешить доступ от Prometheus
+  - from:
+    - podSelector:
+        matchLabels:
+          app: prometheus
+    ports:
+    - protocol: TCP
+      port: 8428
+  egress:
+  # VictoriaMetrics не нуждается в исходящих соединениях
+  - to: []
+    ports: []
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: exporters-netpol
+  namespace: cloudbridge-monitoring
+spec:
+  podSelector:
+    matchLabels:
+      app: node-exporter
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  # Разрешить доступ от Prometheus
+  - from:
+    - podSelector:
+        matchLabels:
+          app: prometheus
+    ports:
+    - protocol: TCP
+      port: 9100
+  egress:
+  # Экспортеры не нуждаются в исходящих соединениях
+  - to: []
+    ports: []

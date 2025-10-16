@@ -23,9 +23,13 @@ spec:
         args:
         - -c
         - |
-          while true; do
-            # Отправляем тестовый алерт каждые 10 минут
-            curl -X POST http://prometheus.cloudbridge-monitoring.svc.cluster.local:9090/api/v1/alerts \
+          # Запускаем HTTP сервер в фоне
+          python3 -m http.server 8080 &
+          HTTP_PID=$!
+          
+          # Функция для отправки алерта
+          send_alert() {
+            curl -X POST http://alertmanager.cloudbridge-monitoring.svc.cluster.local:9093/api/v1/alerts \
               -H "Content-Type: application/json" \
               -d '{
                 "alerts": [{
@@ -40,9 +44,17 @@ spec:
                   },
                   "startsAt": "'$(date -u +%Y-%m-%dT%H:%M:%S.000Z)'"
                 }]
-              }'
+              }' || echo "Failed to send alert"
+          }
+          
+          # Отправляем алерт каждые 10 минут
+          while true; do
+            send_alert
             sleep 600  # 10 минут
           done
+        ports:
+        - containerPort: 8080
+          name: http
         resources:
           requests:
             cpu: 10m
