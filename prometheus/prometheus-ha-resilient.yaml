@@ -24,7 +24,7 @@ spec:
         runAsUser: 65534
         runAsGroup: 65534
         fsGroup: 65534
-      # Anti-affinity для распределения по нодам
+      # Anti-affinity для распределения по нодам и зонам
       affinity:
         podAntiAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
@@ -32,8 +32,6 @@ spec:
               matchLabels:
                 app: prometheus
             topologyKey: kubernetes.io/hostname
-        # Topology spread для распределения по зонам
-        podAntiAffinity:
           preferredDuringSchedulingIgnoredDuringExecution:
           - weight: 100
             podAffinityTerm:
@@ -65,7 +63,6 @@ spec:
           - '--web.console.templates=/etc/prometheus/consoles'
           - '--storage.tsdb.retention.time=15d'
           - '--web.enable-lifecycle'
-          - '--web.enable-admin-api'
           - '--query.max-concurrency=20'
           - '--query.max-samples=1000000'
           - '--query.lookback-delta=5m'

@@ -34,7 +34,6 @@ spec:
           - '--web.console.templates=/etc/prometheus/consoles'
           - '--storage.tsdb.retention.time=15d'
           - '--web.enable-lifecycle'
-          - '--web.enable-admin-api'
           - '--query.max-concurrency=20'
           - '--query.max-samples=1000000'
           - '--query.lookback-delta=5m'

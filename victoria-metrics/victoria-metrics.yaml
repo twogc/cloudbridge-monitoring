@@ -17,20 +17,14 @@ spec:
     spec:
       containers:
       - name: victoria-metrics
-        image: victoriametrics/vmstorage:v1.95.1
+        image: victoriametrics/victoria-metrics:v1.95.1
         ports:
-        - containerPort: 8429
+        - containerPort: 8428
           name: http
-        - containerPort: 8400
-          name: vminsert
-        - containerPort: 8401
-          name: vmselect
         args:
           - '--storageDataPath=/victoria-metrics-data'
           - '--retentionPeriod=180d'
-          - '--httpListenAddr=:8429'
-          - '--vminsertAddr=:8400'
-          - '--vmselectAddr=:8401'
+          - '--httpListenAddr=:8428'
           - '--maxConcurrentInserts=4'
           - '--maxInsertRequestSize=33554432'
           - '--search.maxQueryLen=10000'
@@ -76,18 +70,10 @@ spec:
   selector:
     app: victoria-metrics
   ports:
-  - port: 8429
-    targetPort: 8429
+  - port: 8428
+    targetPort: 8428
     protocol: TCP
     name: http
-  - port: 8400
-    targetPort: 8400
-    protocol: TCP
-    name: vminsert
-  - port: 8401
-    targetPort: 8401
-    protocol: TCP
-    name: vmselect
   type: ClusterIP
 ---
 apiVersion: v1

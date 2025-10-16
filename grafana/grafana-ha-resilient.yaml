@@ -22,7 +22,7 @@ spec:
         runAsUser: 472
         runAsGroup: 472
         fsGroup: 472
-      # Anti-affinity для распределения по нодам
+      # Anti-affinity для распределения по нодам и зонам
       affinity:
         podAntiAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
@@ -30,8 +30,6 @@ spec:
               matchLabels:
                 app: grafana
             topologyKey: kubernetes.io/hostname
-        # Topology spread для распределения по зонам
-        podAntiAffinity:
           preferredDuringSchedulingIgnoredDuringExecution:
           - weight: 100
             podAffinityTerm:
