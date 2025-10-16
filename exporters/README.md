@@ -266,3 +266,4 @@ curl http://localhost:8080/metrics | grep quic_
 ## Лицензия
 
 MIT License
+# Test comment for GitHub Actions trigger
