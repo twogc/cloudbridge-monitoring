@@ -1,4 +1,4 @@
-name: QUIC Probe Simple Tests
+name: QUIC Probe Tests
 
 on:
   push:
