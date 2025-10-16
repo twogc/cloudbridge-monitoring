@@ -1,0 +1,98 @@
+# Unit tests для Prometheus rules
+groups:
+- name: sli_recording.rules
+  rules:
+  - alert: TestRTTBurnRate5m
+    expr: |
+      (
+        sum by(profile) (rate(sli:rtt_success[5m])) < 0.95
+      )
+    for: 2m
+    labels:
+      severity: warning
+      slo: "rtt_p95"
+      burn_rate: "5m"
+      profile: "home"
+    annotations:
+      summary: "RTT SLO burn rate high (5m window)"
+      description: "RTT SLO burn rate is {{ $value }}%, threshold is 95% for 5m window. Profile: {{ $labels.profile }}"
+      runbook_url: "https://github.com/2gc-dev/cloudbridge-monitoring/wiki/Runbooks#rtt-slo"
+
+  - alert: TestJitterBurnRate5m
+    expr: |
+      (
+        sum by(profile) (rate(sli:jitter_success[5m])) < 0.95
+      )
+    for: 2m
+    labels:
+      severity: warning
+      slo: "jitter_p95"
+      burn_rate: "5m"
+      profile: "mobile"
+    annotations:
+      summary: "Jitter SLO burn rate high (5m window)"
+      description: "Jitter SLO burn rate is {{ $value }}%, threshold is 95% for 5m window. Profile: {{ $labels.profile }}"
+      runbook_url: "https://github.com/2gc-dev/cloudbridge-monitoring/wiki/Runbooks#jitter-slo"
+
+  - alert: TestLossBurnRate5m
+    expr: |
+      (
+        sum by(profile) (rate(sli:loss_success[5m])) < 0.95
+      )
+    for: 2m
+    labels:
+      severity: warning
+      slo: "loss_rate"
+      burn_rate: "5m"
+      profile: "streaming"
+    annotations:
+      summary: "Loss Rate SLO burn rate high (5m window)"
+      description: "Loss Rate SLO burn rate is {{ $value }}%, threshold is 95% for 5m window. Profile: {{ $labels.profile }}"
+      runbook_url: "https://github.com/2gc-dev/cloudbridge-monitoring/wiki/Runbooks#loss-rate-slo"
+
+  - alert: TestHandoverBurnRate5m
+    expr: |
+      (
+        sum by(profile) (rate(sli:handover_success[5m])) < 0.95
+      )
+    for: 2m
+    labels:
+      severity: warning
+      slo: "handover_p95"
+      burn_rate: "5m"
+      profile: "gaming"
+    annotations:
+      summary: "Handover SLO burn rate high (5m window)"
+      description: "Handover SLO burn rate is {{ $value }}%, threshold is 95% for 5m window. Profile: {{ $labels.profile }}"
+      runbook_url: "https://github.com/2gc-dev/cloudbridge-monitoring/wiki/Runbooks#handover-slo"
+
+  - alert: TestP2PBurnRate5m
+    expr: |
+      (
+        sum by(profile) (rate(sli:p2p_success[5m])) < 0.95
+      )
+    for: 2m
+    labels:
+      severity: warning
+      slo: "p2p_percentage"
+      burn_rate: "5m"
+      profile: "prime-time"
+    annotations:
+      summary: "P2P SLO burn rate high (5m window)"
+      description: "P2P SLO burn rate is {{ $value }}%, threshold is 95% for 5m window. Profile: {{ $labels.profile }}"
+      runbook_url: "https://github.com/2gc-dev/cloudbridge-monitoring/wiki/Runbooks#p2p-slo"
+
+  - alert: TestErrorBudgetExhausted
+    expr: |
+      (
+        sum by(profile) (rate(sli:rtt_success[30d])) < 0.95
+      )
+    for: 1m
+    labels:
+      severity: critical
+      slo: "error_budget"
+      profile: "home"
+    annotations:
+      summary: "Error budget exhausted"
+      description: "Error budget is {{ $value }}%, threshold is 95% for 30d window. Profile: {{ $labels.profile }}"
+      runbook_url: "https://github.com/2gc-dev/cloudbridge-monitoring/wiki/Runbooks#error-budget"

@@ -1,0 +1,295 @@
+name: CloudBridge Monitoring Advanced CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Install dependencies
+      run: |
+        pip install yamllint
+        wget https://github.com/prometheus/prometheus/releases/latest/download/promtool-linux-amd64.tar.gz
+        tar -xzf promtool-linux-amd64.tar.gz
+        chmod +x promtool
+        sudo mv promtool /usr/local/bin/
+        
+        wget https://github.com/grafana/dashboard-linter/releases/latest/download/dashboard-linter-linux-amd64.tar.gz
+        tar -xzf dashboard-linter-linux-amd64.tar.gz
+        chmod +x dashboard-linter
+        sudo mv dashboard-linter /usr/local/bin/
+        
+        wget https://github.com/yannh/kubeconform/releases/latest/download/kubeconform-linux-amd64.tar.gz
+        tar -xzf kubeconform-linux-amd64.tar.gz
+        chmod +x kubeconform
+        sudo mv kubeconform /usr/local/bin/
+    
+    - name: Lint YAML files
+      run: |
+        yamllint -d relaxed prometheus/ grafana/ alertmanager/ security/ exporters/ victoria-metrics/ monitoring/
+    
+    - name: Lint Prometheus rules
+      run: |
+        promtool check rules prometheus/*.yml
+        promtool check rules monitoring/*.yml
+    
+    - name: Test Prometheus rules
+      run: |
+        promtool test rules prometheus/rules-tests.yml
+        promtool test rules monitoring/rules-tests.yml
+    
+    - name: Lint Grafana dashboards
+      run: |
+        dashboard-linter grafana/dashboards/*.yaml
+    
+    - name: Validate Kubernetes manifests
+      run: |
+        kubeconform -strict -summary prometheus/ grafana/ alertmanager/ security/ exporters/ victoria-metrics/ monitoring/
+
+  security:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Run Trivy vulnerability scanner
+      uses: aquasecurity/trivy-action@master
+      with:
+        scan-type: 'fs'
+        scan-ref: '.'
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+    
+    - name: Upload Trivy scan results
+      uses: github/codeql-action/upload-sarif@v2
+      with:
+        sarif_file: 'trivy-results.sarif'
+    
+    - name: Run Trivy on container images
+      run: |
+        trivy image --format table prom/prometheus:v2.45.0
+        trivy image --format table grafana/grafana:10.0.0
+        trivy image --format table prom/alertmanager:v0.25.0
+
+  opa-policy:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Install Conftest
+      run: |
+        wget https://github.com/open-policy-agent/conftest/releases/latest/download/conftest_linux_amd64.tar.gz
+        tar -xzf conftest_linux_amd64.tar.gz
+        chmod +x conftest
+        sudo mv conftest /usr/local/bin/
+    
+    - name: Create OPA policies
+      run: |
+        mkdir -p policies
+        cat > policies/security.rego << 'EOF'
+        package main
+        
+        # Запрет :latest тегов
+        deny[msg] {
+          input.kind == "Deployment"
+          input.spec.template.spec.containers[_].image
+          not contains(input.spec.template.spec.containers[_].image, ":")
+          msg := "Container image must have a tag"
+        }
+        
+        # Запрет пустых resources
+        deny[msg] {
+          input.kind == "Deployment"
+          not input.spec.template.spec.containers[_].resources
+          msg := "Container must have resource limits"
+        }
+        
+        # Запрет привилегированных контейнеров
+        deny[msg] {
+          input.kind == "Deployment"
+          input.spec.template.spec.containers[_].securityContext.privileged == true
+          msg := "Privileged containers are not allowed"
+        }
+        EOF
+    
+    - name: Run OPA policies
+      run: |
+        conftest test prometheus/ grafana/ alertmanager/ security/ exporters/ victoria-metrics/ monitoring/ --policy policies/
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup kubectl
+      uses: azure/setup-kubectl@v3
+      with:
+        version: 'v1.28.0'
+    
+    - name: Setup kind
+      uses: helm/kind-action@v1.8.0
+      with:
+        cluster_name: cloudbridge-monitoring
+    
+    - name: Deploy monitoring stack
+      run: |
+        kubectl create namespace cloudbridge-monitoring
+        kubectl apply -f security/rbac.yaml
+        kubectl apply -f security/network-policies.yaml
+        kubectl apply -f prometheus/prometheus-ha-resilient.yaml
+        kubectl apply -f grafana/grafana-ha-resilient.yaml
+        kubectl apply -f alertmanager/alertmanager-ha-resilient.yaml
+        kubectl apply -f victoria-metrics/
+        kubectl apply -f exporters/
+        kubectl apply -f monitoring/
+    
+    - name: Wait for deployments
+      run: |
+        kubectl wait --for=condition=ready pod -l app=prometheus -n cloudbridge-monitoring --timeout=300s
+        kubectl wait --for=condition=ready pod -l app=grafana -n cloudbridge-monitoring --timeout=300s
+        kubectl wait --for=condition=ready pod -l app=alertmanager -n cloudbridge-monitoring --timeout=300s
+        kubectl wait --for=condition=ready pod -l app=victoria-metrics -n cloudbridge-monitoring --timeout=300s
+    
+    - name: Run monitoring tests
+      run: |
+        chmod +x scripts/test-monitoring.sh
+        ./scripts/test-monitoring.sh
+    
+    - name: Test alert rules
+      run: |
+        kubectl port-forward -n cloudbridge-monitoring svc/prometheus 9090:9090 &
+        sleep 10
+        curl -s http://localhost:9090/api/v1/rules | jq -r '.data.groups[].rules[].alert' | grep -v null
+    
+    - name: Test Grafana dashboards
+      run: |
+        kubectl port-forward -n cloudbridge-monitoring svc/grafana 3000:3000 &
+        sleep 10
+        curl -s http://localhost:3000/api/health | jq -r '.database'
+    
+    - name: Test dead man's switch
+      run: |
+        kubectl port-forward -n cloudbridge-monitoring svc/alertmanager 9093:9093 &
+        sleep 10
+        # Проверяем что dead man's switch работает
+        kubectl logs -n cloudbridge-monitoring -l app=dead-mans-switch --tail=10
+
+  e2e-alerting:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup kubectl
+      uses: azure/setup-kubectl@v3
+      with:
+        version: 'v1.28.0'
+    
+    - name: Setup kind
+      uses: helm/kind-action@v1.8.0
+      with:
+        cluster_name: cloudbridge-monitoring
+    
+    - name: Deploy monitoring stack
+      run: |
+        kubectl create namespace cloudbridge-monitoring
+        kubectl apply -f security/rbac.yaml
+        kubectl apply -f prometheus/prometheus-ha-resilient.yaml
+        kubectl apply -f alertmanager/alertmanager-ha-resilient.yaml
+        kubectl apply -f monitoring/
+    
+    - name: Wait for deployments
+      run: |
+        kubectl wait --for=condition=ready pod -l app=prometheus -n cloudbridge-monitoring --timeout=300s
+        kubectl wait --for=condition=ready pod -l app=alertmanager -n cloudbridge-monitoring --timeout=300s
+    
+    - name: Start mock webhook
+      run: |
+        cat > mock-webhook.py << 'EOF'
+        from flask import Flask, request, jsonify
+        import json
+        
+        app = Flask(__name__)
+        received_alerts = []
+        
+        @app.route('/webhook', methods=['POST'])
+        def webhook():
+            data = request.get_json()
+            received_alerts.append(data)
+            print(f"Received alert: {json.dumps(data, indent=2)}")
+            return jsonify({"status": "success"})
+        
+        @app.route('/alerts', methods=['GET'])
+        def get_alerts():
+            return jsonify(received_alerts)
+        
+        if __name__ == '__main__':
+            app.run(host='0.0.0.0', port=5001)
+        EOF
+        
+        pip install flask
+        python mock-webhook.py &
+        sleep 5
+    
+    - name: Test alert delivery
+      run: |
+        # Отправляем тестовый алерт
+        curl -X POST http://prometheus.cloudbridge-monitoring.svc.cluster.local:9090/api/v1/alerts \
+          -H "Content-Type: application/json" \
+          -d '{
+            "alerts": [{
+              "labels": {
+                "alertname": "TestAlert",
+                "severity": "critical",
+                "instance": "test-instance"
+              },
+              "annotations": {
+                "summary": "Test alert for E2E testing",
+                "description": "This is a test alert to verify alerting pipeline"
+              },
+              "startsAt": "'$(date -u +%Y-%m-%dT%H:%M:%S.000Z)'"
+            }]
+          }'
+        
+        # Ждем доставки алерта
+        sleep 30
+        
+        # Проверяем что алерт доставлен
+        kubectl port-forward -n cloudbridge-monitoring svc/alertmanager 9093:9093 &
+        sleep 10
+        
+        # Проверяем статус алертов в Alertmanager
+        curl -s http://localhost:9093/api/v1/alerts | jq -r '.data.alerts[] | select(.labels.alertname=="TestAlert")'
+        
+        # Проверяем что webhook получил алерт
+        curl -s http://localhost:5001/alerts | jq -r '.[] | select(.alerts[].labels.alertname=="TestAlert")'
+
+  build:
+    runs-on: ubuntu-latest
+    needs: [lint, security, opa-policy, test, e2e-alerting]
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup Docker Buildx
+      uses: docker/setup-buildx-action@v3
+    
+    - name: Build QUIC probe
+      run: |
+        cd exporters
+        docker build -f Dockerfile.quic-probe -t cloudbridge/quic-probe:latest .
+        docker tag cloudbridge/quic-probe:latest cloudbridge/quic-probe:${{ github.sha }}
+    
+    - name: Push to registry
+      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      run: |
+        echo "Pushing to registry..."
+        # Здесь можно добавить push в registry

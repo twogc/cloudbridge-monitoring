@@ -1,0 +1,187 @@
+# RBAC для CloudBridge Monitoring
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: prometheus
+  namespace: cloudbridge-monitoring
+  labels:
+    app: prometheus
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: grafana
+  namespace: cloudbridge-monitoring
+  labels:
+    app: grafana
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: alertmanager
+  namespace: cloudbridge-monitoring
+  labels:
+    app: alertmanager
+---
+# ClusterRole для Prometheus
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: prometheus
+rules:
+# Разрешить чтение метрик
+- apiGroups: [""]
+  resources:
+  - nodes
+  - nodes/proxy
+  - nodes/metrics
+  - services
+  - endpoints
+  - pods
+  - ingresses
+  verbs: ["get", "list", "watch"]
+# Разрешить чтение API групп
+- apiGroups:
+  - extensions
+  - networking.k8s.io
+  resources:
+  - ingresses
+  verbs: ["get", "list", "watch"]
+# Разрешить доступ к метрикам
+- nonResourceURLs: ["/metrics"]
+  verbs: ["get"]
+# Разрешить чтение конфигурации
+- apiGroups: [""]
+  resources:
+  - configmaps
+  - secrets
+  verbs: ["get", "list", "watch"]
+---
+# ClusterRole для Grafana
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: grafana
+rules:
+# Разрешить чтение ресурсов для дашбордов
+- apiGroups: [""]
+  resources:
+  - nodes
+  - services
+  - endpoints
+  - pods
+  - namespaces
+  verbs: ["get", "list", "watch"]
+# Разрешить чтение API групп
+- apiGroups:
+  - apps
+  - extensions
+  - networking.k8s.io
+  resources:
+  - deployments
+  - replicasets
+  - daemonsets
+  - statefulsets
+  - ingresses
+  verbs: ["get", "list", "watch"]
+---
+# ClusterRole для Alertmanager
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: alertmanager
+rules:
+# Минимальные права для Alertmanager
+- apiGroups: [""]
+  resources:
+  - pods
+  - services
+  verbs: ["get", "list", "watch"]
+---
+# ClusterRoleBinding для Prometheus
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: prometheus
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: prometheus
+subjects:
+- kind: ServiceAccount
+  name: prometheus
+  namespace: cloudbridge-monitoring
+---
+# ClusterRoleBinding для Grafana
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: grafana
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: grafana
+subjects:
+- kind: ServiceAccount
+  name: grafana
+  namespace: cloudbridge-monitoring
+---
+# ClusterRoleBinding для Alertmanager
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: alertmanager
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: alertmanager
+subjects:
+- kind: ServiceAccount
+  name: alertmanager
+  namespace: cloudbridge-monitoring
+---
+# Role для мониторинга в namespace
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: monitoring-role
+  namespace: cloudbridge-monitoring
+rules:
+# Разрешить чтение ресурсов в namespace
+- apiGroups: [""]
+  resources:
+  - pods
+  - services
+  - endpoints
+  - configmaps
+  - secrets
+  verbs: ["get", "list", "watch"]
+# Разрешить чтение deployments
+- apiGroups: ["apps"]
+  resources:
+  - deployments
+  - replicasets
+  - daemonsets
+  - statefulsets
+  verbs: ["get", "list", "watch"]
+---
+# RoleBinding для мониторинга
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: monitoring-rolebinding
+  namespace: cloudbridge-monitoring
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: monitoring-role
+subjects:
+- kind: ServiceAccount
+  name: prometheus
+  namespace: cloudbridge-monitoring
+- kind: ServiceAccount
+  name: grafana
+  namespace: cloudbridge-monitoring
+- kind: ServiceAccount
+  name: alertmanager
+  namespace: cloudbridge-monitoring

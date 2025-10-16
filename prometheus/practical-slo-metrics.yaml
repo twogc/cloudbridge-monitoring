@@ -1,0 +1,422 @@
+# Практичные SLO метрики для домашних и мобильных сетей
+# CloudBridge Monitoring - SLO и алерты
+
+---
+# SLO Rules для домашних сетей
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: home-slo-rules
+  namespace: cloudbridge-monitoring
+  labels:
+    app: prometheus
+    profile: home
+    app.kubernetes.io/name: slo-rules
+    app.kubernetes.io/component: monitoring
+data:
+  home-slo-rules.yml: |
+    groups:
+    - name: home_slo.rules
+      rules:
+      # RTT SLO для домашних сетей
+      - alert: HighHomeRTT
+        expr: histogram_quantile(0.95, relay_rtt_seconds{source="home"}) > 0.025
+        for: 2m
+        labels:
+          severity: critical
+          profile: "home"
+          slo: "rtt_p95"
+        annotations:
+          summary: "High RTT from home to PoP"
+          description: "RTT p95 is {{ $value }}s, threshold is 25ms for home networks"
+          
+      - alert: CriticalHomeRTT
+        expr: histogram_quantile(0.95, relay_rtt_seconds{source="home"}) > 0.05
+        for: 1m
+        labels:
+          severity: critical
+          profile: "home"
+          slo: "rtt_p95"
+        annotations:
+          summary: "Critical RTT from home to PoP"
+          description: "RTT p95 is {{ $value }}s, threshold is 50ms for home networks"
+          
+      # Jitter SLO для домашних сетей
+      - alert: HighHomeJitter
+        expr: histogram_quantile(0.95, relay_jitter_seconds{source="home"}) > 0.008
+        for: 3m
+        labels:
+          severity: warning
+          profile: "home"
+          slo: "jitter_p95"
+        annotations:
+          summary: "High jitter from home to PoP"
+          description: "Jitter p95 is {{ $value }}s, threshold is 8ms for home networks"
+          
+      # Loss SLO для домашних сетей
+      - alert: HighHomeLoss
+        expr: relay_loss_ratio{source="home"} > 0.005
+        for: 2m
+        labels:
+          severity: warning
+          profile: "home"
+          slo: "loss_ratio"
+        annotations:
+          summary: "High packet loss from home to PoP"
+          description: "Loss ratio is {{ $value }}%, threshold is 0.5% for home networks"
+          
+      # TURN Fallback SLO для домашних сетей
+      - alert: HighTurnFallback
+        expr: relay_turn_fallback_ratio{source="home"} > 0.05
+        for: 5m
+        labels:
+          severity: warning
+          profile: "home"
+          slo: "turn_fallback"
+        annotations:
+          summary: "High TURN fallback ratio from home"
+          description: "TURN fallback ratio is {{ $value }}%, threshold is 5% for home networks"
+          
+      # SQM Effectiveness для домашних сетей
+      - alert: SQMNotEffective
+        expr: relay_sqm_bufferbloat_reduction{source="home"} < 0.5
+        for: 10m
+        labels:
+          severity: warning
+          profile: "home"
+          slo: "sqm_effectiveness"
+        annotations:
+          summary: "SQM not effective on home router"
+          description: "SQM bufferbloat reduction is {{ $value }}%, threshold is 50% for home networks"
+
+---
+# SLO Rules для мобильных сетей
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mobile-slo-rules
+  namespace: cloudbridge-monitoring
+  labels:
+    app: prometheus
+    profile: mobile
+    app.kubernetes.io/name: slo-rules
+    app.kubernetes.io/component: monitoring
+data:
+  mobile-slo-rules.yml: |
+    groups:
+    - name: mobile_slo.rules
+      rules:
+      # RTT SLO для мобильных сетей
+      - alert: HighMobileRTT
+        expr: histogram_quantile(0.95, relay_rtt_seconds{source="mobile"}) > 0.045
+        for: 3m
+        labels:
+          severity: critical
+          profile: "mobile"
+          slo: "rtt_p95"
+        annotations:
+          summary: "High RTT from mobile to PoP"
+          description: "RTT p95 is {{ $value }}s, threshold is 45ms for mobile networks"
+          
+      - alert: CriticalMobileRTT
+        expr: histogram_quantile(0.95, relay_rtt_seconds{source="mobile"}) > 0.08
+        for: 2m
+        labels:
+          severity: critical
+          profile: "mobile"
+          slo: "rtt_p95"
+        annotations:
+          summary: "Critical RTT from mobile to PoP"
+          description: "RTT p95 is {{ $value }}s, threshold is 80ms for mobile networks"
+          
+      # Jitter SLO для мобильных сетей
+      - alert: HighMobileJitter
+        expr: histogram_quantile(0.95, relay_jitter_seconds{source="mobile"}) > 0.012
+        for: 5m
+        labels:
+          severity: warning
+          profile: "mobile"
+          slo: "jitter_p95"
+        annotations:
+          summary: "High jitter from mobile to PoP"
+          description: "Jitter p95 is {{ $value }}s, threshold is 12ms for mobile networks"
+          
+      # Loss SLO для мобильных сетей
+      - alert: HighMobileLoss
+        expr: relay_loss_ratio{source="mobile"} > 0.01
+        for: 3m
+        labels:
+          severity: warning
+          profile: "mobile"
+          slo: "loss_ratio"
+        annotations:
+          summary: "High packet loss from mobile to PoP"
+          description: "Loss ratio is {{ $value }}%, threshold is 1% for mobile networks"
+          
+      # Radio Congestion для мобильных сетей
+      - alert: HighRadioCongestion
+        expr: relay_radio_congestion_score{source="mobile"} > 0.7
+        for: 2m
+        labels:
+          severity: warning
+          profile: "mobile"
+          slo: "radio_congestion"
+        annotations:
+          summary: "High radio congestion on mobile network"
+          description: "Radio congestion score is {{ $value }}, threshold is 0.7 for mobile networks"
+          
+      # Ping Spike Rate для мобильных сетей
+      - alert: HighPingSpikeRate
+        expr: relay_ping_spike_rate{source="mobile"} > 3
+        for: 5m
+        labels:
+          severity: warning
+          profile: "mobile"
+          slo: "ping_spike_rate"
+        annotations:
+          summary: "High ping spike rate on mobile network"
+          description: "Ping spike rate is {{ $value }}/5min, threshold is 3/5min for mobile networks"
+          
+      # TURN Fallback SLO для мобильных сетей
+      - alert: HighMobileTurnFallback
+        expr: relay_turn_fallback_ratio{source="mobile"} > 0.1
+        for: 10m
+        labels:
+          severity: warning
+          profile: "mobile"
+          slo: "turn_fallback"
+        annotations:
+          summary: "High TURN fallback ratio from mobile"
+          description: "TURN fallback ratio is {{ $value }}%, threshold is 10% for mobile networks"
+
+---
+# SLO Rules для стриминга
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: streaming-slo-rules
+  namespace: cloudbridge-monitoring
+  labels:
+    app: prometheus
+    profile: streaming
+    app.kubernetes.io/name: slo-rules
+    app.kubernetes.io/component: monitoring
+data:
+  streaming-slo-rules.yml: |
+    groups:
+    - name: streaming_slo.rules
+      rules:
+      # Stall Ratio SLO для стриминга
+      - alert: HighStallRatio
+        expr: relay_stall_ratio{profile="streaming"} > 0.003
+        for: 5m
+        labels:
+          severity: warning
+          profile: "streaming"
+          slo: "stall_ratio"
+        annotations:
+          summary: "High stall ratio in streaming"
+          description: "Stall ratio is {{ $value }}%, threshold is 0.3% for streaming"
+          
+      - alert: CriticalStallRatio
+        expr: relay_stall_ratio{profile="streaming"} > 0.01
+        for: 2m
+        labels:
+          severity: critical
+          profile: "streaming"
+          slo: "stall_ratio"
+        annotations:
+          summary: "Critical stall ratio in streaming"
+          description: "Stall ratio is {{ $value }}%, threshold is 1% for streaming"
+          
+      # Rebuffer Events SLO для стриминга
+      - alert: HighRebufferEvents
+        expr: rate(relay_rebuffer_events_total{profile="streaming"}[1h]) > 0.2
+        for: 10m
+        labels:
+          severity: warning
+          profile: "streaming"
+          slo: "rebuffer_events"
+        annotations:
+          summary: "High rebuffer events in streaming"
+          description: "Rebuffer events rate is {{ $value }}/hour, threshold is 0.2/hour for streaming"
+          
+      # ABR Switches SLO для стриминга
+      - alert: HighABRSwitches
+        expr: rate(relay_abr_switches_total{profile="streaming"}[5m]) > 10
+        for: 5m
+        labels:
+          severity: warning
+          profile: "streaming"
+          slo: "abr_switches"
+        annotations:
+          summary: "High ABR switches in streaming"
+          description: "ABR switches rate is {{ $value }}/5min, threshold is 10/5min for streaming"
+          
+      # FEC Effectiveness для стриминга
+      - alert: FECNotEffective
+        expr: relay_fec_effectiveness{profile="streaming"} < 0.8
+        for: 10m
+        labels:
+          severity: warning
+          profile: "streaming"
+          slo: "fec_effectiveness"
+        annotations:
+          summary: "FEC not effective in streaming"
+          description: "FEC effectiveness is {{ $value }}%, threshold is 80% for streaming"
+
+---
+# SLO Rules для игр
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gaming-slo-rules
+  namespace: cloudbridge-monitoring
+  labels:
+    app: prometheus
+    profile: gaming
+    app.kubernetes.io/name: slo-rules
+    app.kubernetes.io/component: monitoring
+data:
+  gaming-slo-rules.yml: |
+    groups:
+    - name: gaming_slo.rules
+      rules:
+      # RTT SLO для игр (более строгий)
+      - alert: HighGamingRTT
+        expr: histogram_quantile(0.99, relay_rtt_seconds{profile="gaming"}) > 0.05
+        for: 1m
+        labels:
+          severity: critical
+          profile: "gaming"
+          slo: "rtt_p99"
+        annotations:
+          summary: "High RTT in gaming"
+          description: "RTT p99 is {{ $value }}s, threshold is 50ms for gaming"
+          
+      # Jitter SLO для игр (более строгий)
+      - alert: HighGamingJitter
+        expr: histogram_quantile(0.95, relay_jitter_seconds{profile="gaming"}) > 0.005
+        for: 2m
+        labels:
+          severity: critical
+          profile: "gaming"
+          slo: "jitter_p95"
+        annotations:
+          summary: "High jitter in gaming"
+          description: "Jitter p95 is {{ $value }}s, threshold is 5ms for gaming"
+          
+      # Ping Spike Rate для игр
+      - alert: HighGamingPingSpikeRate
+        expr: relay_ping_spike_rate{profile="gaming"} > 2
+        for: 3m
+        labels:
+          severity: critical
+          profile: "gaming"
+          slo: "ping_spike_rate"
+        annotations:
+          summary: "High ping spike rate in gaming"
+          description: "Ping spike rate is {{ $value }}/5min, threshold is 2/5min for gaming"
+          
+      # Handover Duration для игр
+      - alert: SlowGamingHandover
+        expr: histogram_quantile(0.95, relay_handover_duration_seconds{profile="gaming"}) > 0.1
+        for: 2m
+        labels:
+          severity: warning
+          profile: "gaming"
+          slo: "handover_duration"
+        annotations:
+          summary: "Slow handover in gaming"
+          description: "Handover duration p95 is {{ $value }}s, threshold is 100ms for gaming"
+          
+      # Connection Stability для игр
+      - alert: UnstableGamingConnection
+        expr: relay_connection_stability{profile="gaming"} < 0.95
+        for: 5m
+        labels:
+          severity: warning
+          profile: "gaming"
+          slo: "connection_stability"
+        annotations:
+          summary: "Unstable connection in gaming"
+          description: "Connection stability is {{ $value }}%, threshold is 95% for gaming"
+
+---
+# SLO Rules для праймтайма
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prime-time-slo-rules
+  namespace: cloudbridge-monitoring
+  labels:
+    app: prometheus
+    profile: prime-time
+    app.kubernetes.io/name: slo-rules
+    app.kubernetes.io/component: monitoring
+data:
+  prime-time-slo-rules.yml: |
+    groups:
+    - name: prime_time_slo.rules
+      rules:
+      # Prime-time RTT SLO (комбинированный)
+      - alert: HighPrimeTimeRTT
+        expr: histogram_quantile(0.95, relay_rtt_seconds{profile="prime-time"}) > 0.04
+        for: 3m
+        labels:
+          severity: critical
+          profile: "prime-time"
+          slo: "rtt_p95"
+        annotations:
+          summary: "High RTT during prime time"
+          description: "RTT p95 is {{ $value }}s, threshold is 40ms during prime time"
+          
+      # Prime-time Jitter SLO
+      - alert: HighPrimeTimeJitter
+        expr: histogram_quantile(0.95, relay_jitter_seconds{profile="prime-time"}) > 0.01
+        for: 5m
+        labels:
+          severity: warning
+          profile: "prime-time"
+          slo: "jitter_p95"
+        annotations:
+          summary: "High jitter during prime time"
+          description: "Jitter p95 is {{ $value }}s, threshold is 10ms during prime time"
+          
+      # Prime-time Loss SLO
+      - alert: HighPrimeTimeLoss
+        expr: relay_loss_ratio{profile="prime-time"} > 0.007
+        for: 3m
+        labels:
+          severity: warning
+          profile: "prime-time"
+          slo: "loss_ratio"
+        annotations:
+          summary: "High packet loss during prime time"
+          description: "Loss ratio is {{ $value }}%, threshold is 0.7% during prime time"
+          
+      # Prime-time Throughput SLO
+      - alert: LowPrimeTimeThroughput
+        expr: relay_throughput_bytes{profile="prime-time"} < 1000000000
+        for: 10m
+        labels:
+          severity: warning
+          profile: "prime-time"
+          slo: "throughput"
+        annotations:
+          summary: "Low throughput during prime time"
+          description: "Throughput is {{ $value }} bytes/s, threshold is 1Gbps during prime time"
+          
+      # Prime-time Handover Rate
+      - alert: HighPrimeTimeHandoverRate
+        expr: rate(relay_handovers_total{profile="prime-time"}[1h]) > 5
+        for: 15m
+        labels:
+          severity: warning
+          profile: "prime-time"
+          slo: "handover_rate"
+        annotations:
+          summary: "High handover rate during prime time"
+          description: "Handover rate is {{ $value }}/hour, threshold is 5/hour during prime time"
+
+

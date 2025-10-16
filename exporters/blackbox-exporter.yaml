@@ -1,0 +1,146 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: blackbox-exporter
+  namespace: cloudbridge-monitoring
+  labels:
+    app: blackbox-exporter
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: blackbox-exporter
+  template:
+    metadata:
+      labels:
+        app: blackbox-exporter
+    spec:
+      containers:
+      - name: blackbox-exporter
+        image: prom/blackbox-exporter:v0.24.0
+        ports:
+        - containerPort: 9115
+          name: metrics
+        args:
+          - '--config.file=/etc/blackbox_exporter/config.yml'
+          - '--web.listen-address=:9115'
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 200m
+            memory: 128Mi
+        volumeMounts:
+        - name: blackbox-config
+          mountPath: /etc/blackbox_exporter
+        livenessProbe:
+          httpGet:
+            path: /metrics
+            port: 9115
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /metrics
+            port: 9115
+          initialDelaySeconds: 5
+          periodSeconds: 5
+      volumes:
+      - name: blackbox-config
+        configMap:
+          name: blackbox-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: blackbox-exporter
+  namespace: cloudbridge-monitoring
+  labels:
+    app: blackbox-exporter
+spec:
+  selector:
+    app: blackbox-exporter
+  ports:
+  - port: 9115
+    targetPort: 9115
+    protocol: TCP
+    name: metrics
+  type: ClusterIP
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: blackbox-config
+  namespace: cloudbridge-monitoring
+data:
+  config.yml: |
+    modules:
+      http_2xx:
+        prober: http
+        http:
+          preferred_ip_protocol: "ip4"
+          valid_http_versions: ["HTTP/2.0","HTTP/1.1"]
+          valid_status_codes: [200, 201, 202, 203, 204, 205, 206, 207, 208, 226]
+          method: GET
+          headers:
+            User-Agent: "Blackbox Exporter"
+          no_follow_redirects: false
+          fail_if_ssl: false
+          fail_if_not_ssl: false
+          tls_config:
+            insecure_skip_verify: false
+          preferred_ip_protocol: "ip4"
+          ip_protocol_fallback: false
+          body_regex_match: []
+          header_match: []
+          http_post_2xx:
+            method: POST
+            headers:
+              Content-Type: application/x-www-form-urlencoded
+            body: ""
+
+      http_post_2xx:
+        prober: http
+        http:
+          method: POST
+          headers:
+            Content-Type: application/x-www-form-urlencoded
+          body: ""
+
+      tcp_connect:
+        prober: tcp
+        tcp:
+          preferred_ip_protocol: "ip4"
+          ip_protocol_fallback: false
+
+      icmp:
+        prober: icmp
+        icmp:
+          preferred_ip_protocol: "ip4"
+          ip_protocol_fallback: false
+
+      dns_udp:
+        prober: dns
+        dns:
+          query_name: "kubernetes.default.svc.cluster.local"
+          query_type: "A"
+          valid_rcodes:
+            - NOERROR
+          valid_answer_rrs:
+            regexp: "kubernetes.default.svc.cluster.local"
+          validate_answer_rrs:
+            fail_if_matches_regexp:
+              - ".*\\.local\\."
+            fail_if_not_matches_regexp:
+              - ".*\\.local\\."
+          validate_authority_rrs:
+            fail_if_matches_regexp:
+              - ".*\\.local\\."
+            fail_if_not_matches_regexp:
+              - ".*\\.local\\."
+          validate_additional_rrs:
+            fail_if_matches_regexp:
+              - ".*\\.local\\."
+            fail_if_not_matches_regexp:
+              - ".*\\.local\\."

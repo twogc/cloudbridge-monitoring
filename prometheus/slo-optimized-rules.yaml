@@ -1,0 +1,332 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: slo-optimized-rules
+  namespace: cloudbridge-monitoring
+  labels:
+    app: prometheus
+    app.kubernetes.io/name: slo-rules
+    app.kubernetes.io/component: monitoring
+data:
+  slo-optimized-rules.yml: |
+    groups:
+    - name: sli_recording.rules
+      rules:
+      # SLI для RTT SLO (p95 < 50ms)
+      - record: sli:rtt_success
+        expr: |
+          (
+            histogram_quantile(0.95, sum by(le, profile) (rate(relay_rtt_seconds_bucket{job="cloudbridge-relay"}[5m]))) < 0.05
+          )
+        labels:
+          slo: "rtt_p95"
+          profile: "{{ $labels.profile }}"
+      
+      # SLI для Jitter SLO (p95 < 10ms)
+      - record: sli:jitter_success
+        expr: |
+          (
+            histogram_quantile(0.95, sum by(le, profile) (rate(relay_jitter_seconds_bucket{job="cloudbridge-relay"}[5m]))) < 0.01
+          )
+        labels:
+          slo: "jitter_p95"
+          profile: "{{ $labels.profile }}"
+      
+      # SLI для Loss Rate SLO (< 0.1%)
+      - record: sli:loss_success
+        expr: |
+          (
+            rate(relay_packets_lost_total{job="cloudbridge-relay"}[5m]) / rate(relay_packets_total{job="cloudbridge-relay"}[5m]) < 0.001
+          )
+        labels:
+          slo: "loss_rate"
+          profile: "{{ $labels.profile }}"
+      
+      # SLI для Handover SLO (p95 < 300ms)
+      - record: sli:handover_success
+        expr: |
+          (
+            histogram_quantile(0.95, sum by(le, profile) (rate(relay_handover_duration_seconds_bucket{job="cloudbridge-relay"}[5m]))) < 0.3
+          )
+        labels:
+          slo: "handover_p95"
+          profile: "{{ $labels.profile }}"
+      
+      # SLI для P2P SLO (> 60%)
+      - record: sli:p2p_success
+        expr: |
+          (
+            rate(relay_p2p_connections_total{job="cloudbridge-relay"}[5m]) / rate(relay_total_connections_total{job="cloudbridge-relay"}[5m]) > 0.6
+          )
+        labels:
+          slo: "p2p_percentage"
+          profile: "{{ $labels.profile }}"
+      
+      # SLI для Stall Ratio SLO (< 0.5%)
+      - record: sli:stall_success
+        expr: |
+          (
+            rate(relay_stall_events_total{job="cloudbridge-relay"}[5m]) / rate(relay_streaming_seconds_total{job="cloudbridge-relay"}[5m]) < 0.005
+          )
+        labels:
+          slo: "stall_ratio"
+          profile: "{{ $labels.profile }}"
+      
+      # SLI для Rebuffer SLO (< 0.1%)
+      - record: sli:rebuffer_success
+        expr: |
+          (
+            rate(relay_rebuffer_events_total{job="cloudbridge-relay"}[5m]) / rate(relay_streaming_seconds_total{job="cloudbridge-relay"}[5m]) < 0.001
+          )
+        labels:
+          slo: "rebuffer_ratio"
+          profile: "{{ $labels.profile }}"
+      
+      # SLI для ABR Switch SLO (< 5%)
+      - record: sli:abr_success
+        expr: |
+          (
+            rate(relay_abr_switches_total{job="cloudbridge-relay"}[5m]) / rate(relay_streaming_seconds_total{job="cloudbridge-relay"}[5m]) < 0.05
+          )
+        labels:
+          slo: "abr_switches"
+          profile: "{{ $labels.profile }}"
+      
+      # SLI для FEC Effectiveness SLO (> 95%)
+      - record: sli:fec_success
+        expr: |
+          (
+            rate(relay_fec_recovered_packets_total{job="cloudbridge-relay"}[5m]) / rate(relay_fec_attempts_total{job="cloudbridge-relay"}[5m]) > 0.95
+          )
+        labels:
+          slo: "fec_effectiveness"
+          profile: "{{ $labels.profile }}"
+      
+      # SLI для Ping Spike Rate SLO (< 1%)
+      - record: sli:ping_spike_success
+        expr: |
+          (
+            rate(relay_ping_spikes_total{job="cloudbridge-relay"}[5m]) / rate(relay_ping_attempts_total{job="cloudbridge-relay"}[5m]) < 0.01
+          )
+        labels:
+          slo: "ping_spike_rate"
+          profile: "{{ $labels.profile }}"
+      
+      # SLI для Connection Stability SLO (> 99%)
+      - record: sli:connection_success
+        expr: |
+          (
+            rate(relay_stable_connections_total{job="cloudbridge-relay"}[5m]) / rate(relay_total_connections_total{job="cloudbridge-relay"}[5m]) > 0.99
+          )
+        labels:
+          slo: "connection_stability"
+          profile: "{{ $labels.profile }}"
+      
+      # SLI для Throughput SLO (> 80% от заявленного)
+      - record: sli:throughput_success
+        expr: |
+          (
+            rate(relay_bytes_transferred_total{job="cloudbridge-relay"}[5m]) / rate(relay_expected_throughput_total{job="cloudbridge-relay"}[5m]) > 0.8
+          )
+        labels:
+          slo: "throughput"
+          profile: "{{ $labels.profile }}"
+
+    - name: slo_burn_rate.rules
+      rules:
+      # Multi-window burn rate для RTT SLO
+      - alert: RTTBurnRate5m
+        expr: |
+          (
+            sum by(profile) (rate(sli:rtt_success[5m])) < 0.95
+          )
+        for: 2m
+        labels:
+          severity: warning
+          slo: "rtt_p95"
+          burn_rate: "5m"
+          profile: "{{ $labels.profile }}"
+        annotations:
+          summary: "RTT SLO burn rate high (5m window)"
+          description: "RTT SLO burn rate is {{ $value }}%, threshold is 95% for 5m window. Profile: {{ $labels.profile }}"
+          runbook_url: "https://github.com/2gc-dev/cloudbridge-monitoring/wiki/Runbooks#rtt-slo"
+      
+      - alert: RTTBurnRate1h
+        expr: |
+          (
+            sum by(profile) (rate(sli:rtt_success[1h])) < 0.99
+          )
+        for: 5m
+        labels:
+          severity: critical
+          slo: "rtt_p95"
+          burn_rate: "1h"
+          profile: "{{ $labels.profile }}"
+        annotations:
+          summary: "RTT SLO burn rate critical (1h window)"
+          description: "RTT SLO burn rate is {{ $value }}%, threshold is 99% for 1h window. Profile: {{ $labels.profile }}"
+          runbook_url: "https://github.com/2gc-dev/cloudbridge-monitoring/wiki/Runbooks#rtt-slo"
+      
+      - alert: RTTBurnRate6h
+        expr: |
+          (
+            sum by(profile) (rate(sli:rtt_success[6h])) < 0.999
+          )
+        for: 10m
+        labels:
+          severity: critical
+          slo: "rtt_p95"
+          burn_rate: "6h"
+          profile: "{{ $labels.profile }}"
+        annotations:
+          summary: "RTT SLO burn rate critical (6h window)"
+          description: "RTT SLO burn rate is {{ $value }}%, threshold is 99.9% for 6h window. Profile: {{ $labels.profile }}"
+          runbook_url: "https://github.com/2gc-dev/cloudbridge-monitoring/wiki/Runbooks#rtt-slo"
+      
+      # Multi-window burn rate для Jitter SLO
+      - alert: JitterBurnRate5m
+        expr: |
+          (
+            sum by(profile) (rate(sli:jitter_success[5m])) < 0.95
+          )
+        for: 2m
+        labels:
+          severity: warning
+          slo: "jitter_p95"
+          burn_rate: "5m"
+          profile: "{{ $labels.profile }}"
+        annotations:
+          summary: "Jitter SLO burn rate high (5m window)"
+          description: "Jitter SLO burn rate is {{ $value }}%, threshold is 95% for 5m window. Profile: {{ $labels.profile }}"
+          runbook_url: "https://github.com/2gc-dev/cloudbridge-monitoring/wiki/Runbooks#jitter-slo"
+      
+      - alert: JitterBurnRate1h
+        expr: |
+          (
+            sum by(profile) (rate(sli:jitter_success[1h])) < 0.99
+          )
+        for: 5m
+        labels:
+          severity: critical
+          slo: "jitter_p95"
+          burn_rate: "1h"
+          profile: "{{ $labels.profile }}"
+        annotations:
+          summary: "Jitter SLO burn rate critical (1h window)"
+          description: "Jitter SLO burn rate is {{ $value }}%, threshold is 99% for 1h window. Profile: {{ $labels.profile }}"
+          runbook_url: "https://github.com/2gc-dev/cloudbridge-monitoring/wiki/Runbooks#jitter-slo"
+      
+      # Multi-window burn rate для Loss Rate SLO
+      - alert: LossBurnRate5m
+        expr: |
+          (
+            sum by(profile) (rate(sli:loss_success[5m])) < 0.95
+          )
+        for: 2m
+        labels:
+          severity: warning
+          slo: "loss_rate"
+          burn_rate: "5m"
+          profile: "{{ $labels.profile }}"
+        annotations:
+          summary: "Loss Rate SLO burn rate high (5m window)"
+          description: "Loss Rate SLO burn rate is {{ $value }}%, threshold is 95% for 5m window. Profile: {{ $labels.profile }}"
+          runbook_url: "https://github.com/2gc-dev/cloudbridge-monitoring/wiki/Runbooks#loss-rate-slo"
+      
+      - alert: LossBurnRate1h
+        expr: |
+          (
+            sum by(profile) (rate(sli:loss_success[1h])) < 0.99
+          )
+        for: 5m
+        labels:
+          severity: critical
+          slo: "loss_rate"
+          burn_rate: "1h"
+          profile: "{{ $labels.profile }}"
+        annotations:
+          summary: "Loss Rate SLO burn rate critical (1h window)"
+          description: "Loss Rate SLO burn rate is {{ $value }}%, threshold is 99% for 1h window. Profile: {{ $labels.profile }}"
+          runbook_url: "https://github.com/2gc-dev/cloudbridge-monitoring/wiki/Runbooks#loss-rate-slo"
+      
+      # Multi-window burn rate для Handover SLO
+      - alert: HandoverBurnRate5m
+        expr: |
+          (
+            sum by(profile) (rate(sli:handover_success[5m])) < 0.95
+          )
+        for: 2m
+        labels:
+          severity: warning
+          slo: "handover_p95"
+          burn_rate: "5m"
+          profile: "{{ $labels.profile }}"
+        annotations:
+          summary: "Handover SLO burn rate high (5m window)"
+          description: "Handover SLO burn rate is {{ $value }}%, threshold is 95% for 5m window. Profile: {{ $labels.profile }}"
+          runbook_url: "https://github.com/2gc-dev/cloudbridge-monitoring/wiki/Runbooks#handover-slo"
+      
+      - alert: HandoverBurnRate1h
+        expr: |
+          (
+            sum by(profile) (rate(sli:handover_success[1h])) < 0.99
+          )
+        for: 5m
+        labels:
+          severity: critical
+          slo: "handover_p95"
+          burn_rate: "1h"
+          profile: "{{ $labels.profile }}"
+        annotations:
+          summary: "Handover SLO burn rate critical (1h window)"
+          description: "Handover SLO burn rate is {{ $value }}%, threshold is 99% for 1h window. Profile: {{ $labels.profile }}"
+          runbook_url: "https://github.com/2gc-dev/cloudbridge-monitoring/wiki/Runbooks#handover-slo"
+      
+      # Multi-window burn rate для P2P SLO
+      - alert: P2PBurnRate5m
+        expr: |
+          (
+            sum by(profile) (rate(sli:p2p_success[5m])) < 0.95
+          )
+        for: 2m
+        labels:
+          severity: warning
+          slo: "p2p_percentage"
+          burn_rate: "5m"
+          profile: "{{ $labels.profile }}"
+        annotations:
+          summary: "P2P SLO burn rate high (5m window)"
+          description: "P2P SLO burn rate is {{ $value }}%, threshold is 95% for 5m window. Profile: {{ $labels.profile }}"
+          runbook_url: "https://github.com/2gc-dev/cloudbridge-monitoring/wiki/Runbooks#p2p-slo"
+      
+      - alert: P2PBurnRate1h
+        expr: |
+          (
+            sum by(profile) (rate(sli:p2p_success[1h])) < 0.99
+          )
+        for: 5m
+        labels:
+          severity: critical
+          slo: "p2p_percentage"
+          burn_rate: "1h"
+          profile: "{{ $labels.profile }}"
+        annotations:
+          summary: "P2P SLO burn rate critical (1h window)"
+          description: "P2P SLO burn rate is {{ $value }}%, threshold is 99% for 1h window. Profile: {{ $labels.profile }}"
+          runbook_url: "https://github.com/2gc-dev/cloudbridge-monitoring/wiki/Runbooks#p2p-slo"
+      
+      # Error Budget Exhausted
+      - alert: ErrorBudgetExhausted
+        expr: |
+          (
+            sum by(profile) (rate(sli:rtt_success[30d])) < 0.95
+          )
+        for: 1m
+        labels:
+          severity: critical
+          slo: "error_budget"
+          profile: "{{ $labels.profile }}"
+        annotations:
+          summary: "Error budget exhausted"
+          description: "Error budget is {{ $value }}%, threshold is 95% for 30d window. Profile: {{ $labels.profile }}"
+          runbook_url: "https://github.com/2gc-dev/cloudbridge-monitoring/wiki/Runbooks#error-budget"

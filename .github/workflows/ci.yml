@@ -1,0 +1,119 @@
+name: CloudBridge Monitoring CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Install dependencies
+      run: |
+        pip install yamllint promtool
+        wget https://github.com/grafana/dashboard-linter/releases/latest/download/dashboard-linter-linux-amd64.tar.gz
+        tar -xzf dashboard-linter-linux-amd64.tar.gz
+        chmod +x dashboard-linter
+    
+    - name: Lint YAML files
+      run: |
+        yamllint -d relaxed prometheus/ grafana/ alertmanager/ security/ exporters/ victoria-metrics/
+    
+    - name: Lint Prometheus rules
+      run: |
+        promtool check rules prometheus/*.yml
+    
+    - name: Lint Grafana dashboards
+      run: |
+        ./dashboard-linter grafana/dashboards/*.yaml
+    
+    - name: Validate Kubernetes manifests
+      run: |
+        kubeconform -strict -summary prometheus/ grafana/ alertmanager/ security/ exporters/ victoria-metrics/
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup kubectl
+      uses: azure/setup-kubectl@v3
+      with:
+        version: 'v1.28.0'
+    
+    - name: Setup kind
+      uses: helm/kind-action@v1.8.0
+      with:
+        cluster_name: cloudbridge-monitoring
+    
+    - name: Deploy monitoring stack
+      run: |
+        kubectl create namespace cloudbridge-monitoring
+        kubectl apply -f prometheus/monitoring/
+        kubectl apply -f grafana/
+        kubectl apply -f alertmanager/
+        kubectl apply -f security/
+        kubectl apply -f exporters/
+        kubectl apply -f victoria-metrics/
+    
+    - name: Wait for deployments
+      run: |
+        kubectl wait --for=condition=ready pod -l app=prometheus -n cloudbridge-monitoring --timeout=300s
+        kubectl wait --for=condition=ready pod -l app=grafana -n cloudbridge-monitoring --timeout=300s
+        kubectl wait --for=condition=ready pod -l app=alertmanager -n cloudbridge-monitoring --timeout=300s
+    
+    - name: Run monitoring tests
+      run: |
+        chmod +x scripts/test-monitoring.sh
+        ./scripts/test-monitoring.sh
+    
+    - name: Test alert rules
+      run: |
+        kubectl port-forward -n cloudbridge-monitoring svc/prometheus 9090:9090 &
+        sleep 10
+        curl -s http://localhost:9090/api/v1/rules | jq -r '.data.groups[].rules[].alert' | grep -v null
+    
+    - name: Test Grafana dashboards
+      run: |
+        kubectl port-forward -n cloudbridge-monitoring svc/grafana 3000:3000 &
+        sleep 10
+        curl -s http://localhost:3000/api/health | jq -r '.database'
+
+  security:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Run Trivy vulnerability scanner
+      uses: aquasecurity/trivy-action@master
+      with:
+        scan-type: 'fs'
+        scan-ref: '.'
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+    
+    - name: Upload Trivy scan results
+      uses: github/codeql-action/upload-sarif@v2
+      with:
+        sarif_file: 'trivy-results.sarif'
+
+  build:
+    runs-on: ubuntu-latest
+    needs: [lint, test, security]
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Build and push images
+      run: |
+        echo "Building custom exporters..."
+        # Здесь можно добавить сборку кастомных экспортеров
+        echo "Images built successfully"

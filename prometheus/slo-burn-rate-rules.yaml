@@ -1,0 +1,218 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: slo-burn-rate-rules
+  namespace: cloudbridge-monitoring
+  labels:
+    app: prometheus
+    app.kubernetes.io/name: slo-rules
+    app.kubernetes.io/component: monitoring
+data:
+  slo-burn-rate-rules.yml: |
+    groups:
+    - name: slo_burn_rate.rules
+      rules:
+      # RTT SLO Burn Rate - 5m window
+      - alert: RTTBurnRate5m
+        expr: |
+          (
+            (1 - (rate(relay_errors_total{job="cloudbridge-relay"}[5m]) / rate(relay_requests_total{job="cloudbridge-relay"}[5m]))) < 0.95
+          )
+        for: 2m
+        labels:
+          severity: warning
+          slo: "rtt_p95"
+          burn_rate: "5m"
+        annotations:
+          summary: "RTT SLO burn rate high (5m window)"
+          description: "RTT SLO burn rate is {{ $value }}%, threshold is 95% for 5m window"
+          runbook_url: "https://github.com/2gc-dev/cloudbridge-monitoring/wiki/Runbooks#rtt-slo"
+      
+      # RTT SLO Burn Rate - 1h window
+      - alert: RTTBurnRate1h
+        expr: |
+          (
+            (1 - (rate(relay_errors_total{job="cloudbridge-relay"}[1h]) / rate(relay_requests_total{job="cloudbridge-relay"}[1h]))) < 0.99
+          )
+        for: 5m
+        labels:
+          severity: critical
+          slo: "rtt_p95"
+          burn_rate: "1h"
+        annotations:
+          summary: "RTT SLO burn rate critical (1h window)"
+          description: "RTT SLO burn rate is {{ $value }}%, threshold is 99% for 1h window"
+          runbook_url: "https://github.com/2gc-dev/cloudbridge-monitoring/wiki/Runbooks#rtt-slo"
+      
+      # RTT SLO Burn Rate - 6h window
+      - alert: RTTBurnRate6h
+        expr: |
+          (
+            (1 - (rate(relay_errors_total{job="cloudbridge-relay"}[6h]) / rate(relay_requests_total{job="cloudbridge-relay"}[6h]))) < 0.999
+          )
+        for: 10m
+        labels:
+          severity: critical
+          slo: "rtt_p95"
+          burn_rate: "6h"
+        annotations:
+          summary: "RTT SLO burn rate critical (6h window)"
+          description: "RTT SLO burn rate is {{ $value }}%, threshold is 99.9% for 6h window"
+          runbook_url: "https://github.com/2gc-dev/cloudbridge-monitoring/wiki/Runbooks#rtt-slo"
+      
+      # Handover SLO Burn Rate - 5m window
+      - alert: HandoverBurnRate5m
+        expr: |
+          (
+            (1 - (rate(relay_handover_errors_total{job="cloudbridge-relay"}[5m]) / rate(relay_handovers_total{job="cloudbridge-relay"}[5m]))) < 0.95
+          )
+        for: 2m
+        labels:
+          severity: warning
+          slo: "handover_p95"
+          burn_rate: "5m"
+        annotations:
+          summary: "Handover SLO burn rate high (5m window)"
+          description: "Handover SLO burn rate is {{ $value }}%, threshold is 95% for 5m window"
+          runbook_url: "https://github.com/2gc-dev/cloudbridge-monitoring/wiki/Runbooks#handover-slo"
+      
+      # Handover SLO Burn Rate - 1h window
+      - alert: HandoverBurnRate1h
+        expr: |
+          (
+            (1 - (rate(relay_handover_errors_total{job="cloudbridge-relay"}[1h]) / rate(relay_handovers_total{job="cloudbridge-relay"}[1h]))) < 0.99
+          )
+        for: 5m
+        labels:
+          severity: critical
+          slo: "handover_p95"
+          burn_rate: "1h"
+        annotations:
+          summary: "Handover SLO burn rate critical (1h window)"
+          description: "Handover SLO burn rate is {{ $value }}%, threshold is 99% for 1h window"
+          runbook_url: "https://github.com/2gc-dev/cloudbridge-monitoring/wiki/Runbooks#handover-slo"
+      
+      # P2P SLO Burn Rate - 5m window
+      - alert: P2PBurnRate5m
+        expr: |
+          (
+            (rate(relay_p2p_connections_total{job="cloudbridge-relay"}[5m]) / rate(relay_total_connections_total{job="cloudbridge-relay"}[5m])) < 0.6
+          )
+        for: 2m
+        labels:
+          severity: warning
+          slo: "p2p_percentage"
+          burn_rate: "5m"
+        annotations:
+          summary: "P2P SLO burn rate high (5m window)"
+          description: "P2P percentage is {{ $value }}%, threshold is 60% for 5m window"
+          runbook_url: "https://github.com/2gc-dev/cloudbridge-monitoring/wiki/Runbooks#p2p-slo"
+      
+      # P2P SLO Burn Rate - 1h window
+      - alert: P2PBurnRate1h
+        expr: |
+          (
+            (rate(relay_p2p_connections_total{job="cloudbridge-relay"}[1h]) / rate(relay_total_connections_total{job="cloudbridge-relay"}[1h])) < 0.8
+          )
+        for: 5m
+        labels:
+          severity: critical
+          slo: "p2p_percentage"
+          burn_rate: "1h"
+        annotations:
+          summary: "P2P SLO burn rate critical (1h window)"
+          description: "P2P percentage is {{ $value }}%, threshold is 80% for 1h window"
+          runbook_url: "https://github.com/2gc-dev/cloudbridge-monitoring/wiki/Runbooks#p2p-slo"
+      
+      # Error Budget Exhausted
+      - alert: ErrorBudgetExhausted
+        expr: |
+          (
+            (1 - (rate(relay_errors_total{job="cloudbridge-relay"}[30d]) / rate(relay_requests_total{job="cloudbridge-relay"}[30d]))) < 0.95
+          )
+        for: 1m
+        labels:
+          severity: critical
+          slo: "error_budget"
+        annotations:
+          summary: "Error budget exhausted"
+          description: "Error budget is {{ $value }}%, threshold is 95% for 30d window"
+          runbook_url: "https://github.com/2gc-dev/cloudbridge-monitoring/wiki/Runbooks#error-budget"
+      
+      # Data Gap Detection
+      - alert: DataGap
+        expr: |
+          absent(up{job="cloudbridge-relay"} == 1)
+        for: 2m
+        labels:
+          severity: critical
+          slo: "data_availability"
+        annotations:
+          summary: "Data gap detected"
+          description: "No data received from {{ $labels.job }} for 2 minutes"
+          runbook_url: "https://github.com/2gc-dev/cloudbridge-monitoring/wiki/Runbooks#data-gap"
+      
+      # Prometheus TSDB Issues
+      - alert: PrometheusTSDBHigh
+        expr: |
+          prometheus_tsdb_head_series > 1000000
+        for: 5m
+        labels:
+          severity: warning
+          slo: "prometheus_tsdb"
+        annotations:
+          summary: "Prometheus TSDB high series count"
+          description: "Prometheus TSDB has {{ $value }} series, approaching limit"
+          runbook_url: "https://github.com/2gc-dev/cloudbridge-monitoring/wiki/Runbooks#prometheus-tsdb"
+      
+      # Prometheus TSDB Corruptions
+      - alert: PrometheusTSDBCorrupt
+        expr: |
+          increase(prometheus_tsdb_wal_corruptions_total[5m]) > 0
+        for: 1m
+        labels:
+          severity: critical
+          slo: "prometheus_tsdb"
+        annotations:
+          summary: "Prometheus TSDB corruption detected"
+          description: "Prometheus TSDB has {{ $value }} corruptions in 5 minutes"
+          runbook_url: "https://github.com/2gc-dev/cloudbridge-monitoring/wiki/Runbooks#prometheus-tsdb"
+      
+      # Alertmanager Notifications Failed
+      - alert: AlertmanagerNotificationsFailed
+        expr: |
+          rate(alertmanager_notifications_failed_total[5m]) > 0
+        for: 2m
+        labels:
+          severity: critical
+          slo: "alerting_pipeline"
+        annotations:
+          summary: "Alertmanager notifications failed"
+          description: "Alertmanager has {{ $value }} failed notifications per second"
+          runbook_url: "https://github.com/2gc-dev/cloudbridge-monitoring/wiki/Runbooks#alertmanager"
+      
+      # Grafana Health Check
+      - alert: GrafanaDown
+        expr: |
+          up{job="grafana"} == 0
+        for: 30s
+        labels:
+          severity: critical
+          slo: "grafana_availability"
+        annotations:
+          summary: "Grafana is down"
+          description: "Grafana has been down for 30 seconds"
+          runbook_url: "https://github.com/2gc-dev/cloudbridge-monitoring/wiki/Runbooks#grafana"
+      
+      # Dead Man's Switch
+      - alert: DeadMansSwitch
+        expr: |
+          time() - alertmanager_alert_last_active_time > 60
+        for: 1m
+        labels:
+          severity: critical
+          slo: "alerting_pipeline"
+        annotations:
+          summary: "Dead man's switch triggered"
+          description: "No alerts received for 1 minute, alerting system may be down"
+          runbook_url: "https://github.com/2gc-dev/cloudbridge-monitoring/wiki/Runbooks#dead-mans-switch"

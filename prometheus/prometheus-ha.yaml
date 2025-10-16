@@ -1,0 +1,244 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: prometheus
+  namespace: cloudbridge-monitoring
+  labels:
+    app: prometheus
+    app.kubernetes.io/component: monitoring
+    app.kubernetes.io/name: prometheus
+    app.kubernetes.io/part-of: cloudbridge-relay
+spec:
+  serviceName: prometheus
+  replicas: 2
+  selector:
+    matchLabels:
+      app: prometheus
+  template:
+    metadata:
+      labels:
+        app: prometheus
+    spec:
+      serviceAccountName: prometheus
+      securityContext:
+        runAsUser: 65534
+        runAsGroup: 65534
+        fsGroup: 65534
+      containers:
+      - name: prometheus
+        image: prom/prometheus:v2.45.0
+        args:
+          - '--config.file=/etc/prometheus/prometheus.yml'
+          - '--storage.tsdb.path=/prometheus/'
+          - '--web.console.libraries=/etc/prometheus/console_libraries'
+          - '--web.console.templates=/etc/prometheus/consoles'
+          - '--storage.tsdb.retention.time=15d'
+          - '--web.enable-lifecycle'
+          - '--web.enable-admin-api'
+          - '--query.max-concurrency=20'
+          - '--query.max-samples=1000000'
+          - '--query.lookback-delta=5m'
+          - '--query.timeout=30s'
+          - '--web.external-url=http://prometheus.cloudbridge-monitoring.svc.cluster.local:9090'
+          - '--web.route-prefix=/'
+        ports:
+        - containerPort: 9090
+          name: web
+        resources:
+          requests:
+            cpu: 500m
+            memory: 1Gi
+          limits:
+            cpu: 2
+            memory: 4Gi
+        volumeMounts:
+        - name: prometheus-config
+          mountPath: /etc/prometheus
+        - name: prometheus-storage
+          mountPath: /prometheus
+        livenessProbe:
+          httpGet:
+            path: /-/healthy
+            port: 9090
+          initialDelaySeconds: 30
+          periodSeconds: 15
+        readinessProbe:
+          httpGet:
+            path: /-/ready
+            port: 9090
+          initialDelaySeconds: 5
+          periodSeconds: 5
+      volumes:
+      - name: prometheus-config
+        configMap:
+          name: prometheus-ha-config
+      - name: prometheus-storage
+        persistentVolumeClaim:
+          claimName: prometheus-storage
+  volumeClaimTemplates:
+  - metadata:
+      name: prometheus-storage
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      resources:
+        requests:
+          storage: 50Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus
+  namespace: cloudbridge-monitoring
+  labels:
+    app: prometheus
+spec:
+  selector:
+    app: prometheus
+  ports:
+  - port: 9090
+    targetPort: 9090
+    protocol: TCP
+    name: web
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus-headless
+  namespace: cloudbridge-monitoring
+  labels:
+    app: prometheus
+spec:
+  clusterIP: None
+  selector:
+    app: prometheus
+  ports:
+  - port: 9090
+    targetPort: 9090
+    protocol: TCP
+    name: web
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-ha-config
+  namespace: cloudbridge-monitoring
+  labels:
+    app: prometheus
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 15s
+      evaluation_interval: 15s
+      external_labels:
+        cluster: 'cloudbridge-relay'
+        environment: 'production'
+        prometheus_replica: '$(POD_NAME)'
+
+    # Remote write для долговременного хранения
+    remote_write:
+    - url: "http://victoria-metrics-vmagent.cloudbridge-monitoring.svc.cluster.local:8429/api/v1/write"
+      send_exemplars: true
+      queue_config:
+        max_samples_per_send: 1000
+        batch_send_deadline: 5s
+        max_retries: 3
+        min_backoff: 30ms
+        max_backoff: 100ms
+
+    rule_files:
+      - "/etc/prometheus/rules/*.yml"
+
+    scrape_configs:
+      # Prometheus itself
+      - job_name: 'prometheus'
+        static_configs:
+          - targets: ['localhost:9090']
+        scrape_interval: 30s
+        honor_labels: true
+
+      # CloudBridge Relay
+      - job_name: 'cloudbridge-relay'
+        static_configs:
+          - targets: ['cloudbridge-relay.cloudbridge.svc.cluster.local:8084']
+        metrics_path: '/metrics'
+        scrape_interval: 15s
+        scrape_timeout: 10s
+        honor_labels: true
+
+      # Node Exporter
+      - job_name: 'node-exporter'
+        kubernetes_sd_configs:
+        - role: endpoints
+        relabel_configs:
+        - source_labels: [__meta_kubernetes_endpoints_name]
+          action: keep
+          regex: node-exporter
+        - source_labels: [__meta_kubernetes_endpoint_address_target_name]
+          target_label: instance
+        scrape_interval: 30s
+
+      # Kube State Metrics
+      - job_name: 'kube-state-metrics'
+        kubernetes_sd_configs:
+        - role: endpoints
+        relabel_configs:
+        - source_labels: [__meta_kubernetes_endpoints_name]
+          action: keep
+          regex: kube-state-metrics
+        scrape_interval: 30s
+
+      # Blackbox Exporter
+      - job_name: 'blackbox'
+        kubernetes_sd_configs:
+        - role: endpoints
+        relabel_configs:
+        - source_labels: [__meta_kubernetes_endpoints_name]
+          action: keep
+          regex: blackbox-exporter
+        scrape_interval: 30s
+
+      # Cadence
+      - job_name: 'cadence'
+        static_configs:
+          - targets: ['cadence-service.cloudbridge.svc.cluster.local:7934']
+        metrics_path: '/metrics'
+        scrape_interval: 30s
+
+      # AI Service
+      - job_name: 'ai-service'
+        static_configs:
+          - targets: ['ai-service.cloudbridge.svc.cluster.local:8083']
+        metrics_path: '/metrics'
+        scrape_interval: 30s
+
+  # Recording rules для оптимизации запросов
+  recording-rules.yml: |
+    groups:
+    - name: cloudbridge.rules
+      rules:
+      # RTT percentiles
+      - record: relay:rtt_p50
+        expr: histogram_quantile(0.50, rate(relay_rtt_seconds_bucket[5m]))
+      - record: relay:rtt_p95
+        expr: histogram_quantile(0.95, rate(relay_rtt_seconds_bucket[5m]))
+      - record: relay:rtt_p99
+        expr: histogram_quantile(0.99, rate(relay_rtt_seconds_bucket[5m]))
+      
+      # Jitter percentiles
+      - record: relay:jitter_p50
+        expr: histogram_quantile(0.50, rate(relay_jitter_seconds_bucket[5m]))
+      - record: relay:jitter_p95
+        expr: histogram_quantile(0.95, rate(relay_jitter_seconds_bucket[5m]))
+      
+      # Loss rate
+      - record: relay:loss_rate
+        expr: rate(relay_packets_lost_total[5m]) / rate(relay_packets_total[5m])
+      
+      # Handover duration
+      - record: relay:handover_p95
+        expr: histogram_quantile(0.95, rate(relay_handover_duration_seconds_bucket[5m]))
+      
+      # P2P percentage
+      - record: relay:p2p_percentage
+        expr: rate(relay_p2p_connections_total[5m]) / rate(relay_total_connections_total[5m]) * 100

@@ -1,0 +1,350 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: alertmanager
+  namespace: cloudbridge-monitoring
+  labels:
+    app: alertmanager
+    app.kubernetes.io/component: monitoring
+    app.kubernetes.io/name: alertmanager
+    app.kubernetes.io/part-of: cloudbridge-relay
+spec:
+  serviceName: alertmanager
+  replicas: 2
+  selector:
+    matchLabels:
+      app: alertmanager
+  template:
+    metadata:
+      labels:
+        app: alertmanager
+    spec:
+      securityContext:
+        runAsUser: 65534
+        runAsGroup: 65534
+        fsGroup: 65534
+      # Anti-affinity для распределения по нодам
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchLabels:
+                app: alertmanager
+            topologyKey: kubernetes.io/hostname
+        # Topology spread для распределения по зонам
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchLabels:
+                  app: alertmanager
+              topologyKey: topology.kubernetes.io/zone
+      # Topology spread constraints
+      topologySpreadConstraints:
+      - maxSkew: 1
+        topologyKey: kubernetes.io/hostname
+        whenUnsatisfiable: DoNotSchedule
+        labelSelector:
+          matchLabels:
+            app: alertmanager
+      - maxSkew: 1
+        topologyKey: topology.kubernetes.io/zone
+        whenUnsatisfiable: ScheduleAnyway
+        labelSelector:
+          matchLabels:
+            app: alertmanager
+      containers:
+      - name: alertmanager
+        image: prom/alertmanager:v0.25.0
+        args:
+          - '--config.file=/etc/alertmanager/alertmanager.yml'
+          - '--storage.path=/alertmanager'
+          - '--web.external-url=http://alertmanager.cloudbridge-monitoring.svc.cluster.local:9093'
+          - '--web.route-prefix=/'
+          - '--cluster.listen-address=:9094'
+          - '--cluster.peer=alertmanager-0.alertmanager.cloudbridge-monitoring.svc.cluster.local:9094'
+          - '--cluster.peer=alertmanager-1.alertmanager.cloudbridge-monitoring.svc.cluster.local:9094'
+          - '--log.level=info'
+        ports:
+        - containerPort: 9093
+          name: web
+        - containerPort: 9094
+          name: cluster
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+        volumeMounts:
+        - name: alertmanager-config
+          mountPath: /etc/alertmanager
+        - name: alertmanager-storage
+          mountPath: /alertmanager
+        livenessProbe:
+          httpGet:
+            path: /-/healthy
+            port: 9093
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /-/ready
+            port: 9093
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 5
+          failureThreshold: 3
+      volumes:
+      - name: alertmanager-config
+        configMap:
+          name: alertmanager-ha-config
+      - name: alertmanager-storage
+        persistentVolumeClaim:
+          claimName: alertmanager-storage
+  volumeClaimTemplates:
+  - metadata:
+      name: alertmanager-storage
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      storageClassName: "fast-ssd"  # Зафиксированный StorageClass
+      resources:
+        requests:
+          storage: 10Gi
+---
+# Pod Disruption Budget для Alertmanager
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: alertmanager-pdb
+  namespace: cloudbridge-monitoring
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: alertmanager
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: alertmanager
+  namespace: cloudbridge-monitoring
+  labels:
+    app: alertmanager
+spec:
+  selector:
+    app: alertmanager
+  ports:
+  - port: 9093
+    targetPort: 9093
+    protocol: TCP
+    name: web
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: alertmanager-headless
+  namespace: cloudbridge-monitoring
+  labels:
+    app: alertmanager
+spec:
+  clusterIP: None
+  selector:
+    app: alertmanager
+  ports:
+  - port: 9093
+    targetPort: 9093
+    protocol: TCP
+    name: web
+  - port: 9094
+    targetPort: 9094
+    protocol: TCP
+    name: cluster
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: alertmanager-ha-config
+  namespace: cloudbridge-monitoring
+  labels:
+    app: alertmanager
+data:
+  alertmanager.yml: |
+    global:
+      smtp_smarthost: 'smtp.gmail.com:587'
+      smtp_from: 'alerts@2gc.ru'
+      smtp_auth_username: 'alerts@2gc.ru'
+      smtp_auth_password: 'your-app-password'
+      smtp_require_tls: true
+      resolve_timeout: 5m
+
+    # Dead man's switch
+    route:
+      group_by: ['alertname', 'cluster', 'service']
+      group_wait: 10s
+      group_interval: 10s
+      repeat_interval: 1h
+      receiver: 'web.hook'
+      routes:
+      # Critical alerts - immediate delivery
+      - match:
+          severity: critical
+        receiver: 'critical-alerts'
+        group_wait: 5s
+        repeat_interval: 30m
+      
+      # Warning alerts - grouping
+      - match:
+          severity: warning
+        receiver: 'warning-alerts'
+        group_wait: 5m
+        repeat_interval: 2h
+      
+      # SLO alerts - special handling
+      - match:
+          slo: ".*"
+        receiver: 'slo-alerts'
+        group_wait: 2m
+        repeat_interval: 1h
+      
+      # Dead man's switch
+      - match:
+          alertname: DeadMansSwitch
+        receiver: 'dead-mans-switch'
+        group_wait: 0s
+        repeat_interval: 1m
+
+    receivers:
+    # Webhook for external integrations
+    - name: 'web.hook'
+      webhook_configs:
+      - url: 'http://webhook:5001/'
+        send_resolved: true
+        title: 'CloudBridge Alert: {{ .GroupLabels.alertname }}'
+        text: |
+          {{ range .Alerts }}
+          Alert: {{ .Annotations.summary }}
+          Description: {{ .Annotations.description }}
+          Severity: {{ .Labels.severity }}
+          {{ if .Labels.slo }}SLO: {{ .Labels.slo }}{{ end }}
+          {{ end }}
+
+    # Critical alerts - email + Slack
+    - name: 'critical-alerts'
+      email_configs:
+      - to: 'admin@2gc.ru'
+        subject: 'CRITICAL: {{ .GroupLabels.alertname }}'
+        body: |
+          {{ range .Alerts }}
+          CRITICAL ALERT
+          
+          Alert: {{ .Annotations.summary }}
+          Description: {{ .Annotations.description }}
+          Severity: {{ .Labels.severity }}
+          Instance: {{ .Labels.instance }}
+          {{ if .Labels.slo }}SLO: {{ .Labels.slo }}{{ end }}
+          
+          Time: {{ .StartsAt }}
+          {{ end }}
+      
+      slack_configs:
+      - api_url: 'https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK'
+        channel: '#alerts-critical'
+        title: 'CRITICAL: {{ .GroupLabels.alertname }}'
+        text: |
+          {{ range .Alerts }}
+          CRITICAL ALERT
+          
+          Alert: {{ .Annotations.summary }}
+          Description: {{ .Annotations.description }}
+          Severity: {{ .Labels.severity }}
+          Instance: {{ .Labels.instance }}
+          {{ if .Labels.slo }}SLO: {{ .Labels.slo }}{{ end }}
+          
+          Time: {{ .StartsAt }}
+          {{ end }}
+
+    # Warning alerts - email
+    - name: 'warning-alerts'
+      email_configs:
+      - to: 'team@2gc.ru'
+        subject: 'WARNING: {{ .GroupLabels.alertname }}'
+        body: |
+          {{ range .Alerts }}
+          WARNING ALERT
+          
+          Alert: {{ .Annotations.summary }}
+          Description: {{ .Annotations.description }}
+          Severity: {{ .Labels.severity }}
+          Instance: {{ .Labels.instance }}
+          {{ if .Labels.slo }}SLO: {{ .Labels.slo }}{{ end }}
+          
+          Time: {{ .StartsAt }}
+          {{ end }}
+
+    # SLO alerts - special handling
+    - name: 'slo-alerts'
+      email_configs:
+      - to: 'slo-team@2gc.ru'
+        subject: 'SLO Alert: {{ .GroupLabels.alertname }}'
+        body: |
+          {{ range .Alerts }}
+          SLO ALERT
+          
+          Alert: {{ .Annotations.summary }}
+          Description: {{ .Annotations.description }}
+          SLO: {{ .Labels.slo }}
+          Profile: {{ .Labels.profile }}
+          Severity: {{ .Labels.severity }}
+          
+          Time: {{ .StartsAt }}
+          {{ end }}
+      
+      slack_configs:
+      - api_url: 'https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK'
+        channel: '#slo-monitoring'
+        title: 'SLO Alert: {{ .GroupLabels.alertname }}'
+        text: |
+          {{ range .Alerts }}
+          SLO ALERT
+          
+          Alert: {{ .Annotations.summary }}
+          Description: {{ .Annotations.description }}
+          SLO: {{ .Labels.slo }}
+          Profile: {{ .Labels.profile }}
+          Severity: {{ .Labels.severity }}
+          
+          Time: {{ .StartsAt }}
+          {{ end }}
+
+    # Dead man's switch
+    - name: 'dead-mans-switch'
+      webhook_configs:
+      - url: 'https://hooks.slack.com/services/DEADMAN/SLACK/WEBHOOK'
+        send_resolved: false
+        title: 'DEAD MAN SWITCH: Alerting system may be down'
+        text: |
+          No alerts received for 1 minute. Alerting system may be down.
+          Time: {{ .StartsAt }}
+
+    # Inhibition rules
+    inhibit_rules:
+    # Suppress warning alerts when critical alerts are firing
+    - source_match:
+        severity: 'critical'
+      target_match:
+        severity: 'warning'
+      equal: ['alertname', 'cluster', 'service']
+
+    # Suppress SLO alerts when critical system alerts are firing
+    - source_match:
+        severity: 'critical'
+        alertname: 'PrometheusDown'
+      target_match:
+        slo: '.*'
+      equal: ['cluster']

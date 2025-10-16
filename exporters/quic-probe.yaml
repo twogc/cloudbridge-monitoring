@@ -1,0 +1,80 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: quic-probe
+  namespace: cloudbridge-monitoring
+  labels:
+    app: quic-probe
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: quic-probe
+  template:
+    metadata:
+      labels:
+        app: quic-probe
+    spec:
+      containers:
+      - name: quic-probe
+        image: cloudbridge/quic-probe:latest
+        args:
+          - "-targets=moscow.2gc.ru:443,frankfurt.2gc.ru:443,amsterdam.2gc.ru:443"
+          - "-interval=30s"
+          - "-port=8080"
+        ports:
+        - containerPort: 8080
+          name: metrics
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 200m
+            memory: 128Mi
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: quic-probe
+  namespace: cloudbridge-monitoring
+  labels:
+    app: quic-probe
+spec:
+  selector:
+    app: quic-probe
+  ports:
+  - port: 8080
+    targetPort: 8080
+    protocol: TCP
+    name: metrics
+  type: ClusterIP
+---
+# ServiceMonitor для Prometheus
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: quic-probe
+  namespace: cloudbridge-monitoring
+  labels:
+    app: quic-probe
+spec:
+  selector:
+    matchLabels:
+      app: quic-probe
+  endpoints:
+  - port: metrics
+    path: /metrics
+    interval: 30s

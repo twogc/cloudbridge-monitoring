@@ -2,32 +2,32 @@
 
 Система мониторинга и метрик для CloudBridge Relay с SLO мониторингом, алертингом и визуализацией.
 
-## 🎯 Назначение
+## Назначение
 
 Этот репозиторий содержит компоненты мониторинга для CloudBridge Relay:
 
-- **📈 Prometheus** - Сбор и хранение метрик
-- **📊 Grafana** - Визуализация и дашборды
-- **🚨 Alertmanager** - Управление алертами
-- **📋 SLO Monitoring** - Мониторинг Service Level Objectives
-- **🔍 Logging** - Централизованное логирование
+- **Prometheus** - Сбор и хранение метрик
+- **Grafana** - Визуализация и дашборды
+- **Alertmanager** - Управление алертами
+- **SLO Monitoring** - Мониторинг Service Level Objectives
+- **Logging** - Централизованное логирование
 
-## 🏗️ Архитектура мониторинга
+## Архитектура мониторинга
 
 ```mermaid
 graph TB
     subgraph "Monitoring Stack"
-        P[📈 Prometheus<br/>monitor.2gc.ru<br/>Metrics Collection<br/>Time Series DB]
-        G[📊 Grafana<br/>grafana.2gc.ru<br/>Dashboards<br/>Visualization]
-        A[🚨 Alertmanager<br/>alerts.2gc.ru<br/>Alert Management<br/>Notifications]
+        P[Prometheus<br/>monitor.2gc.ru<br/>Metrics Collection<br/>Time Series DB]
+        G[Grafana<br/>grafana.2gc.ru<br/>Dashboards<br/>Visualization]
+        A[Alertmanager<br/>alerts.2gc.ru<br/>Alert Management<br/>Notifications]
     end
     
     subgraph "Data Sources"
-        R1[🏢 Moscow PoP<br/>Metrics Export]
-        R2[🏢 Frankfurt PoP<br/>Metrics Export]
-        R3[🏢 Amsterdam PoP<br/>Metrics Export]
-        CP[🏛️ Control Plane<br/>Metrics Export]
-        AI[🤖 AI Service<br/>Metrics Export]
+        R1[Moscow PoP<br/>Metrics Export]
+        R2[Frankfurt PoP<br/>Metrics Export]
+        R3[Amsterdam PoP<br/>Metrics Export]
+        CP[Control Plane<br/>Metrics Export]
+        AI[AI Service<br/>Metrics Export]
     end
     
     subgraph "SLO Targets"
@@ -60,7 +60,7 @@ graph TB
     class S1,S2,S3,S4 slo
 ```
 
-## 📦 Компоненты
+## Компоненты
 
 ### **Prometheus**
 - **Назначение**: Сбор и хранение метрик
@@ -270,7 +270,7 @@ groups:
 | `ai_model_accuracy` | Точность AI модели | > 90% |
 | `ai_prediction_latency` | Задержка предсказаний | < 100ms |
 
-## 🚨 Алертинг
+## Алертинг
 
 ### **Alert Channels**
 
@@ -456,3 +456,7 @@ MIT License - см. [LICENSE](LICENSE) файл.
 - **Issues**: [GitHub Issues](https://github.com/2gc-dev/cloudbridge-monitoring/issues)
 - **Discussions**: [GitHub Discussions](https://github.com/2gc-dev/cloudbridge-monitoring/discussions)
 - **Documentation**: [Wiki](https://github.com/2gc-dev/cloudbridge-monitoring/wiki)
+
+
+
+

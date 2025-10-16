@@ -1,0 +1,330 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+  namespace: cloudbridge-monitoring
+  labels:
+    app: grafana
+    app.kubernetes.io/component: monitoring
+    app.kubernetes.io/name: grafana
+    app.kubernetes.io/part-of: cloudbridge-relay
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: grafana
+  template:
+    metadata:
+      labels:
+        app: grafana
+    spec:
+      securityContext:
+        runAsUser: 472
+        runAsGroup: 472
+        fsGroup: 472
+      # Anti-affinity для распределения по нодам
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchLabels:
+                app: grafana
+            topologyKey: kubernetes.io/hostname
+        # Topology spread для распределения по зонам
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchLabels:
+                  app: grafana
+              topologyKey: topology.kubernetes.io/zone
+      # Topology spread constraints
+      topologySpreadConstraints:
+      - maxSkew: 1
+        topologyKey: kubernetes.io/hostname
+        whenUnsatisfiable: DoNotSchedule
+        labelSelector:
+          matchLabels:
+            app: grafana
+      - maxSkew: 1
+        topologyKey: topology.kubernetes.io/zone
+        whenUnsatisfiable: ScheduleAnyway
+        labelSelector:
+          matchLabels:
+            app: grafana
+      containers:
+      - name: grafana
+        image: grafana/grafana:10.0.0
+        ports:
+        - containerPort: 3000
+          name: http
+        env:
+        # Database configuration
+        - name: GF_DATABASE_TYPE
+          value: postgres
+        - name: GF_DATABASE_HOST
+          value: postgres.cloudbridge-monitoring.svc.cluster.local:5432
+        - name: GF_DATABASE_NAME
+          value: grafana
+        - name: GF_DATABASE_USER
+          value: grafana
+        - name: GF_DATABASE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: grafana-db-secret
+              key: password
+        
+        # Security configuration - отключить локального admin
+        - name: GF_AUTH_DISABLE_LOGIN_FORM
+          value: "true"
+        - name: GF_AUTH_ANONYMOUS_ENABLED
+          value: "false"
+        - name: GF_USERS_ALLOW_SIGN_UP
+          value: "false"
+        - name: GF_USERS_ALLOW_ORG_CREATE
+          value: "false"
+        
+        # OIDC configuration (Zitadel)
+        - name: GF_AUTH_GENERIC_OAUTH_ENABLED
+          value: "true"
+        - name: GF_AUTH_GENERIC_OAUTH_NAME
+          value: "Zitadel"
+        - name: GF_AUTH_GENERIC_OAUTH_CLIENT_ID
+          valueFrom:
+            secretKeyRef:
+              name: grafana-oidc-secret
+              key: client-id
+        - name: GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: grafana-oidc-secret
+              key: client-secret
+        - name: GF_AUTH_GENERIC_OAUTH_SCOPES
+          value: "openid profile email"
+        - name: GF_AUTH_GENERIC_OAUTH_AUTH_URL
+          value: "https://auth.2gc.ru/oauth/v2/authorize"
+        - name: GF_AUTH_GENERIC_OAUTH_TOKEN_URL
+          value: "https://auth.2gc.ru/oauth/v2/token"
+        - name: GF_AUTH_GENERIC_OAUTH_API_URL
+          value: "https://auth.2gc.ru/oauth/v2/userinfo"
+        - name: GF_AUTH_GENERIC_OAUTH_ALLOW_SIGN_UP
+          value: "true"
+        
+        # Provisioning
+        - name: GF_PATHS_PROVISIONING
+          value: /etc/grafana/provisioning
+        
+        # Performance
+        - name: GF_SERVER_ROOT_URL
+          value: "http://grafana.cloudbridge-monitoring.svc.cluster.local:3000"
+        - name: GF_SERVER_ENABLE_GZIP
+          value: "true"
+        
+        # Plugins
+        - name: GF_INSTALL_PLUGINS
+          value: "grafana-piechart-panel,grafana-worldmap-panel,grafana-clock-panel"
+        
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+        volumeMounts:
+        - name: grafana-storage
+          mountPath: /var/lib/grafana
+        - name: grafana-datasources
+          mountPath: /etc/grafana/provisioning/datasources
+        - name: grafana-dashboards
+          mountPath: /etc/grafana/provisioning/dashboards
+        - name: grafana-dashboard-configs
+          mountPath: /var/lib/grafana/dashboards
+        livenessProbe:
+          httpGet:
+            path: /api/health
+            port: 3000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /api/health
+            port: 3000
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 5
+          failureThreshold: 3
+      volumes:
+      - name: grafana-storage
+        emptyDir: {}
+      - name: grafana-datasources
+        configMap:
+          name: grafana-datasources
+      - name: grafana-dashboards
+        configMap:
+          name: grafana-dashboard-configs
+      - name: grafana-dashboard-configs
+        configMap:
+          name: grafana-dashboard-configs
+---
+# Pod Disruption Budget для Grafana
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: grafana-pdb
+  namespace: cloudbridge-monitoring
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: grafana
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana
+  namespace: cloudbridge-monitoring
+  labels:
+    app: grafana
+spec:
+  selector:
+    app: grafana
+  ports:
+  - port: 3000
+    targetPort: 3000
+    protocol: TCP
+    name: http
+  type: ClusterIP
+---
+# PostgreSQL для Grafana с PDB
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  namespace: cloudbridge-monitoring
+  labels:
+    app: postgres
+spec:
+  serviceName: postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+      - name: postgres
+        image: postgres:15
+        ports:
+        - containerPort: 5432
+          name: postgres
+        env:
+        - name: POSTGRES_DB
+          value: grafana
+        - name: POSTGRES_USER
+          value: grafana
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: grafana-db-secret
+              key: password
+        - name: PGDATA
+          value: /var/lib/postgresql/data/pgdata
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            cpu: 500m
+            memory: 1Gi
+        volumeMounts:
+        - name: postgres-storage
+          mountPath: /var/lib/postgresql/data
+        livenessProbe:
+          exec:
+            command:
+            - pg_isready
+            - -U
+            - grafana
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          exec:
+            command:
+            - pg_isready
+            - -U
+            - grafana
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 5
+          failureThreshold: 3
+      volumes:
+      - name: postgres-storage
+        persistentVolumeClaim:
+          claimName: postgres-storage
+  volumeClaimTemplates:
+  - metadata:
+      name: postgres-storage
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      storageClassName: "fast-ssd"  # Зафиксированный StorageClass
+      resources:
+        requests:
+          storage: 10Gi
+---
+# Pod Disruption Budget для PostgreSQL
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: postgres-pdb
+  namespace: cloudbridge-monitoring
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: postgres
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: cloudbridge-monitoring
+  labels:
+    app: postgres
+spec:
+  selector:
+    app: postgres
+  ports:
+  - port: 5432
+    targetPort: 5432
+    protocol: TCP
+    name: postgres
+  type: ClusterIP
+---
+# Secrets
+apiVersion: v1
+kind: Secret
+metadata:
+  name: grafana-db-secret
+  namespace: cloudbridge-monitoring
+type: Opaque
+data:
+  password: Z3JhZmFuYTEyMw==  # grafana123
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: grafana-oidc-secret
+  namespace: cloudbridge-monitoring
+type: Opaque
+data:
+  client-id: Z3JhZmFuYQ==  # grafana
+  client-secret: Z3JhZmFuYS1zZWNyZXQ=  # grafana-secret

@@ -1,0 +1,164 @@
+# Dead Man's Switch для CloudBridge Monitoring
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dead-mans-switch
+  namespace: cloudbridge-monitoring
+  labels:
+    app: dead-mans-switch
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: dead-mans-switch
+  template:
+    metadata:
+      labels:
+        app: dead-mans-switch
+    spec:
+      containers:
+      - name: dead-mans-switch
+        image: curlimages/curl:latest
+        command: ["/bin/sh"]
+        args:
+        - -c
+        - |
+          while true; do
+            # Отправляем тестовый алерт каждые 10 минут
+            curl -X POST http://prometheus.cloudbridge-monitoring.svc.cluster.local:9090/api/v1/alerts \
+              -H "Content-Type: application/json" \
+              -d '{
+                "alerts": [{
+                  "labels": {
+                    "alertname": "DeadMansSwitch",
+                    "severity": "critical",
+                    "instance": "dead-mans-switch"
+                  },
+                  "annotations": {
+                    "summary": "Dead man switch heartbeat",
+                    "description": "This is a periodic heartbeat to ensure alerting system is working"
+                  },
+                  "startsAt": "'$(date -u +%Y-%m-%dT%H:%M:%S.000Z)'"
+                }]
+              }'
+            sleep 600  # 10 минут
+          done
+        resources:
+          requests:
+            cpu: 10m
+            memory: 32Mi
+          limits:
+            cpu: 50m
+            memory: 64Mi
+        livenessProbe:
+          exec:
+            command:
+            - /bin/sh
+            - -c
+            - "ps aux | grep -v grep | grep curl"
+          initialDelaySeconds: 30
+          periodSeconds: 30
+        readinessProbe:
+          exec:
+            command:
+            - /bin/sh
+            - -c
+            - "ps aux | grep -v grep | grep curl"
+          initialDelaySeconds: 5
+          periodSeconds: 10
+---
+# Service для dead-man's switch
+apiVersion: v1
+kind: Service
+metadata:
+  name: dead-mans-switch
+  namespace: cloudbridge-monitoring
+  labels:
+    app: dead-mans-switch
+spec:
+  selector:
+    app: dead-mans-switch
+  ports:
+  - port: 8080
+    targetPort: 8080
+    protocol: TCP
+    name: http
+  type: ClusterIP
+---
+# Alert rule для dead-man's switch
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dead-mans-switch-rules
+  namespace: cloudbridge-monitoring
+  labels:
+    app: prometheus
+data:
+  dead-mans-switch-rules.yml: |
+    groups:
+    - name: dead_mans_switch.rules
+      rules:
+      # Dead man's switch - если нет heartbeat 15 минут
+      - alert: DeadMansSwitchMissing
+        expr: |
+          time() - alertmanager_alert_last_active_time > 900
+        for: 1m
+        labels:
+          severity: critical
+          slo: "alerting_pipeline"
+        annotations:
+          summary: "Dead man's switch missing"
+          description: "No heartbeat received from dead man's switch for 15 minutes. Alerting system may be down."
+          runbook_url: "https://github.com/2gc-dev/cloudbridge-monitoring/wiki/Runbooks#dead-mans-switch"
+      
+      # Alertmanager не получает алерты
+      - alert: AlertmanagerNoAlerts
+        expr: |
+          increase(alertmanager_alerts_received_total[15m]) == 0
+        for: 5m
+        labels:
+          severity: critical
+          slo: "alerting_pipeline"
+        annotations:
+          summary: "Alertmanager not receiving alerts"
+          description: "Alertmanager has not received any alerts for 15 minutes"
+          runbook_url: "https://github.com/2gc-dev/cloudbridge-monitoring/wiki/Runbooks#alertmanager"
+      
+      # Prometheus не скрапит метрики
+      - alert: PrometheusNoScrapes
+        expr: |
+          increase(prometheus_tsdb_head_samples_appended_total[15m]) == 0
+        for: 5m
+        labels:
+          severity: critical
+          slo: "data_collection"
+        annotations:
+          summary: "Prometheus not scraping metrics"
+          description: "Prometheus has not scraped any metrics for 15 minutes"
+          runbook_url: "https://github.com/2gc-dev/cloudbridge-monitoring/wiki/Runbooks#prometheus"
+      
+      # Grafana недоступна
+      - alert: GrafanaDown
+        expr: |
+          up{job="grafana"} == 0
+        for: 30s
+        labels:
+          severity: critical
+          slo: "grafana_availability"
+        annotations:
+          summary: "Grafana is down"
+          description: "Grafana has been down for 30 seconds"
+          runbook_url: "https://github.com/2gc-dev/cloudbridge-monitoring/wiki/Runbooks#grafana"
+      
+      # VictoriaMetrics недоступна
+      - alert: VictoriaMetricsDown
+        expr: |
+          up{job="victoria-metrics"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          slo: "storage_availability"
+        annotations:
+          summary: "VictoriaMetrics is down"
+          description: "VictoriaMetrics has been down for 1 minute"
+          runbook_url: "https://github.com/2gc-dev/cloudbridge-monitoring/wiki/Runbooks#victoria-metrics"
