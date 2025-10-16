@@ -4,13 +4,18 @@
 
 ## Назначение
 
-Этот репозиторий содержит компоненты мониторинга для CloudBridge Relay:
+Этот репозиторий содержит production-ready систему мониторинга для CloudBridge Relay:
 
-- **Prometheus** - Сбор и хранение метрик
-- **Grafana** - Визуализация и дашборды
-- **Alertmanager** - Управление алертами
-- **SLO Monitoring** - Мониторинг Service Level Objectives
-- **Logging** - Централизованное логирование
+- **Prometheus** - Сбор и хранение метрик с HA конфигурацией
+- **Grafana** - Визуализация и дашборды с внешней БД
+- **Alertmanager** - Управление алертами с кластеризацией
+- **VictoriaMetrics** - Долгосрочное хранение метрик
+- **SLO Monitoring** - Мониторинг Service Level Objectives с burn-rate алертами
+- **QUIC Probe** - Кастомный экспортер для QUIC метрик
+- **Blackbox Exporter** - Синтетический мониторинг
+- **Security** - NetworkPolicies, RBAC, External Secrets
+- **Backup & DR** - Автоматические бэкапы и восстановление
+- **CI/CD** - GitHub Actions с тестированием и линтингом
 
 ## Архитектура мониторинга
 
@@ -79,23 +84,46 @@ graph TB
 
 ## Быстрый старт
 
-### **Развертывание мониторинга**
+### **Развертывание Production-Ready мониторинга**
 
 ```bash
 # 1. Создание namespace
 kubectl create namespace cloudbridge-monitoring
 
-# 2. Развертывание Prometheus
-kubectl apply -f prometheus/
+# 2. Развертывание HA Prometheus
+kubectl apply -f prometheus/prometheus-ha-resilient.yaml
 
-# 3. Развертывание Grafana
-kubectl apply -f grafana/
+# 3. Развертывание HA Alertmanager
+kubectl apply -f alertmanager/alertmanager-ha-resilient.yaml
 
-# 4. Развертывание Alertmanager
-kubectl apply -f alertmanager/
+# 4. Развертывание HA Grafana
+kubectl apply -f grafana/grafana-ha-resilient.yaml
 
-# 5. Проверка готовности
+# 5. Развертывание VictoriaMetrics
+kubectl apply -f victoria-metrics/
+
+# 6. Развертывание экспортеров
+kubectl apply -f exporters/
+
+# 7. Настройка безопасности
+kubectl apply -f security/
+
+# 8. Проверка готовности
 kubectl get pods -n cloudbridge-monitoring
+```
+
+### **Установка QUIC Probe**
+
+```bash
+# Сборка и тестирование QUIC probe
+cd exporters
+go mod download
+go test -v ./...
+go test -race -v ./...
+go build -o quic-probe .
+
+# Установка в Kubernetes
+kubectl apply -f exporters/quic-probe.yaml
 ```
 
 ### **Доступ к интерфейсам**
@@ -413,6 +441,44 @@ resources:
     memory: "8Gi"
 ```
 
+## Production-Ready Возможности
+
+### **High Availability (HA)**
+- **Prometheus HA**: 2 реплики с anti-affinity и PDB
+- **Alertmanager Clustering**: 3 реплики с кластеризацией
+- **Grafana HA**: 2 реплики с внешней PostgreSQL БД
+- **VictoriaMetrics**: Долгосрочное хранение метрик
+
+### **Безопасность**
+- **NetworkPolicies**: Ограничение сетевого трафика
+- **RBAC**: Роли и права доступа
+- **External Secrets**: Управление секретами
+- **OIDC**: Интеграция с Zitadel
+- **TLS**: Шифрование трафика
+
+### **Мониторинг мониторинга**
+- **Dead-man's Switch**: Контроль работоспособности алертинга
+- **Data Gap Detection**: Обнаружение пропусков в данных
+- **E2E Testing**: End-to-end тестирование алертов
+- **Burn-rate Alerts**: Многооконные алерты для SLO
+
+### **Экспортеры и пробы**
+- **QUIC Probe**: Кастомный Go экспортер для QUIC метрик
+- **Blackbox Exporter**: Синтетический мониторинг
+- **Node Exporter**: Системные метрики
+- **Kube State Metrics**: Kubernetes метрики
+
+### **CI/CD и тестирование**
+- **GitHub Actions**: Автоматическое тестирование
+- **Linting**: staticcheck, go vet, go fmt
+- **Security Scanning**: Trivy для уязвимостей
+- **Policy Validation**: OPA/Conftest для манифестов
+
+### **Backup и Disaster Recovery**
+- **Автоматические бэкапы**: Grafana, VictoriaMetrics, Alertmanager
+- **Restore Drills**: Регулярные тесты восстановления
+- **Disaster Recovery**: Скрипты для полного восстановления
+
 ## Обновления
 
 ### **Rolling update**
@@ -434,11 +500,23 @@ kubectl rollout undo deployment/prometheus -n cloudbridge-monitoring
 
 ## Документация
 
+### **Основные компоненты**
 - [Prometheus Configuration](docs/prometheus-config.md)
 - [Grafana Dashboards](docs/grafana-dashboards.md)
 - [Alerting Rules](docs/alerting-rules.md)
 - [SLO Monitoring](docs/slo-monitoring.md)
-- [Troubleshooting](docs/troubleshooting.md)
+
+### **Production-Ready функции**
+- [High Availability Setup](prometheus/prometheus-ha-resilient.yaml)
+- [Security Configuration](security/)
+- [QUIC Probe Documentation](exporters/README.md)
+- [Backup & Recovery](backup/)
+- [CI/CD Workflows](.github/workflows/)
+
+### **Troubleshooting**
+- [Troubleshooting Guide](docs/troubleshooting.md)
+- [GitHub Actions Logs](.github/workflows/)
+- [Test Results](exporters/TEST_RESULTS.md)
 
 ## Участие в разработке
 
