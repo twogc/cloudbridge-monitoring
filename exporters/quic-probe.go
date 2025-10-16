@@ -154,7 +154,7 @@ func (qp *QUICProbe) probeQUIC(target, pop string) {
 func (qp *QUICProbe) start() {
 	ticker := time.NewTicker(qp.interval)
 	defer ticker.Stop()
-	
+
 	for range ticker.C {
 		for _, target := range qp.targets {
 			// Определяем PoP по target
@@ -166,7 +166,7 @@ func (qp *QUICProbe) start() {
 			} else if target == "amsterdam.2gc.ru:443" {
 				pop = "amsterdam"
 			}
-			
+
 			go qp.probeQUIC(target, pop)
 		}
 	}
