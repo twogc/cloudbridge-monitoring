@@ -1,0 +1,31 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cloudbridge-scrubbing
+  labels:
+    name: cloudbridge-scrubbing
+    app.kubernetes.io/name: cloudbridge-scrubbing
+    app.kubernetes.io/part-of: cloudbridge-monitoring
+    app.kubernetes.io/component: ddos-protection
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: scrubbing-config
+  namespace: cloudbridge-scrubbing
+data:
+  upstream-providers.yaml: |
+    # Upstream scrubbing providers configuration
+    yandex-cloud:
+      enabled: true
+      method: "bgp-peering"  # BGP announcement, not API
+      monitoring: true
+    qrator:
+      enabled: true
+      method: "bgp-peering"  # BGP peering with Qrator
+      monitoring: true
+    rtk:
+      enabled: false
+      method: "manual-coordination"  # Requires ISP contract
+      monitoring: false

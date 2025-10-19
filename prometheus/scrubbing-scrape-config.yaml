@@ -1,0 +1,65 @@
+---
+# Prometheus scrape configuration for DDoS protection exporters
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-scrubbing-scrape-config
+  namespace: cloudbridge-monitoring
+  labels:
+    app.kubernetes.io/name: prometheus
+    app.kubernetes.io/part-of: cloudbridge-monitoring
+data:
+  scrubbing-scrape.yaml: |
+    # Scrubbing exporter scrape config
+    scrape_configs:
+    - job_name: 'scrubbing-exporter'
+      kubernetes_sd_configs:
+      - role: endpoints
+        namespaces:
+          names:
+          - cloudbridge-scrubbing
+      relabel_configs:
+      - source_labels: [__meta_kubernetes_service_name]
+        action: keep
+        regex: scrubbing-exporter
+      - source_labels: [__meta_kubernetes_endpoint_port_name]
+        action: keep
+        regex: metrics
+      - source_labels: [__meta_kubernetes_namespace]
+        target_label: namespace
+      - source_labels: [__meta_kubernetes_pod_name]
+        target_label: pod
+      - source_labels: [__meta_kubernetes_service_name]
+        target_label: service
+      metric_relabel_configs:
+      - source_labels: [__name__]
+        regex: 'cloudbridge_scrubbing_.*'
+        action: keep
+      scrape_interval: 30s
+      scrape_timeout: 10s
+
+    - job_name: 'bgp-blackhole-exporter'
+      kubernetes_sd_configs:
+      - role: endpoints
+        namespaces:
+          names:
+          - cloudbridge-scrubbing
+      relabel_configs:
+      - source_labels: [__meta_kubernetes_service_name]
+        action: keep
+        regex: bgp-blackhole-exporter
+      - source_labels: [__meta_kubernetes_endpoint_port_name]
+        action: keep
+        regex: metrics
+      - source_labels: [__meta_kubernetes_namespace]
+        target_label: namespace
+      - source_labels: [__meta_kubernetes_pod_name]
+        target_label: pod
+      - source_labels: [__meta_kubernetes_service_name]
+        target_label: service
+      metric_relabel_configs:
+      - source_labels: [__name__]
+        regex: 'cloudbridge_bgp_blackhole_.*'
+        action: keep
+      scrape_interval: 30s
+      scrape_timeout: 10s

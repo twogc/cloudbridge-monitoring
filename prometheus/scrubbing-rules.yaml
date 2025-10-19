@@ -1,0 +1,186 @@
+---
+# CloudBridge DDoS Protection Prometheus Rules
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-scrubbing-rules
+  namespace: cloudbridge-monitoring
+  labels:
+    app.kubernetes.io/name: prometheus
+    app.kubernetes.io/part-of: cloudbridge-monitoring
+data:
+  scrubbing-rules.yaml: |
+    groups:
+    - name: ddos_detection
+      interval: 30s
+      rules:
+      # High traffic detection
+      - alert: HighTrafficDetected
+        expr: |
+          rate(cloudbridge_relay_bytes_received_total[5m]) > 100000000
+        for: 30s
+        labels:
+          severity: warning
+          alert_type: ddos_detection
+          component: relay
+        annotations:
+          summary: "High traffic detected on {{ $labels.tenant }}/{{ $labels.pop }}"
+          description: "Traffic rate {{ $value | humanize }}bps exceeds threshold"
+          target_ip: "{{ $labels.client_ip }}"
+
+      # Suspicious connection rate
+      - alert: HighConnectionRate
+        expr: |
+          rate(cloudbridge_relay_connections_total[1m]) > 1000
+        for: 30s
+        labels:
+          severity: warning
+          alert_type: ddos_detection
+          attack_type: syn_flood
+        annotations:
+          summary: "High connection rate on {{ $labels.tenant }}/{{ $labels.pop }}"
+          description: "Connection rate {{ $value }} conn/s exceeds threshold"
+          target_ip: "{{ $labels.server_ip }}"
+
+      # UDP amplification attack
+      - alert: UDPAmplificationDetected
+        expr: |
+          (
+            rate(cloudbridge_relay_udp_packets_received_total[5m])
+            / rate(cloudbridge_relay_udp_packets_sent_total[5m])
+          ) > 10
+        for: 1m
+        labels:
+          severity: critical
+          alert_type: ddos_detection
+          attack_type: udp_amplification
+        annotations:
+          summary: "UDP amplification attack on {{ $labels.tenant }}/{{ $labels.pop }}"
+          description: "UDP amplification ratio {{ $value | humanize }}x"
+          target_ip: "{{ $labels.server_ip }}"
+
+      # Packet rate spike
+      - alert: PacketRateSpike
+        expr: |
+          (
+            rate(cloudbridge_relay_packets_total[1m])
+            / rate(cloudbridge_relay_packets_total[5m] offset 5m)
+          ) > 5
+        for: 30s
+        labels:
+          severity: warning
+          alert_type: ddos_detection
+          attack_type: packet_flood
+        annotations:
+          summary: "Packet rate spike on {{ $labels.tenant }}/{{ $labels.pop }}"
+          description: "Packet rate increased {{ $value | humanize }}x in 1 minute"
+          target_ip: "{{ $labels.server_ip }}"
+
+    - name: bgp_blackhole_monitoring
+      interval: 30s
+      rules:
+      # BGP blackhole injected
+      - alert: BGPBlackholeInjected
+        expr: |
+          increase(cloudbridge_bgp_blackhole_injected_total[1m]) > 0
+        labels:
+          severity: warning
+          alert_type: mitigation
+        annotations:
+          summary: "BGP blackhole injected for {{ $labels.prefix }}"
+          description: "Blackhole route injected on {{ $labels.tenant }}/{{ $labels.pop }}"
+          prefix: "{{ $labels.prefix }}"
+
+      # Too many active blackholes
+      - alert: TooManyActiveBlackholes
+        expr: |
+          cloudbridge_bgp_blackhole_active > 10
+        for: 5m
+        labels:
+          severity: warning
+          alert_type: operational
+        annotations:
+          summary: "Too many active blackholes on {{ $labels.tenant }}/{{ $labels.pop }}"
+          description: "{{ $value }} active blackhole routes may indicate ongoing attack"
+
+      # Blackhole duration exceeded
+      - alert: BlackholeDurationExceeded
+        expr: |
+          cloudbridge_bgp_blackhole_duration_seconds > 3600
+        labels:
+          severity: info
+          alert_type: operational
+        annotations:
+          summary: "Blackhole route active for >1 hour"
+          description: "Route {{ $labels.prefix }} on {{ $labels.tenant }}/{{ $labels.pop }} blackholed for {{ $value | humanizeDuration }}"
+
+    - name: scrubbing_monitoring
+      interval: 30s
+      rules:
+      # Upstream scrubbing provider down
+      - alert: UpstreamScrubbingDown
+        expr: |
+          cloudbridge_scrubbing_upstream_provider_status == 0
+        for: 2m
+        labels:
+          severity: critical
+          alert_type: operational
+        annotations:
+          summary: "Upstream scrubbing provider {{ $labels.provider }} is down"
+          description: "Unable to reach {{ $labels.provider }} for DDoS scrubbing"
+
+      # High scrubbing latency
+      - alert: HighScrubbingLatency
+        expr: |
+          histogram_quantile(0.95,
+            rate(cloudbridge_scrubbing_latency_seconds_bucket[5m])
+          ) > 5
+        for: 5m
+        labels:
+          severity: warning
+          alert_type: performance
+        annotations:
+          summary: "High scrubbing latency on {{ $labels.provider }}"
+          description: "P95 latency {{ $value | humanizeDuration }} exceeds 5s"
+
+      # DDoS attack frequency
+      - alert: HighDDoSAttackFrequency
+        expr: |
+          rate(cloudbridge_scrubbing_ddos_attacks_detected_total[1h]) > 10
+        for: 10m
+        labels:
+          severity: warning
+          alert_type: security
+        annotations:
+          summary: "High DDoS attack frequency on {{ $labels.tenant }}/{{ $labels.pop }}"
+          description: "{{ $value | humanize }} attacks/hour detected"
+
+    - name: scrubbing_recording_rules
+      interval: 30s
+      rules:
+      # Total attacks by tenant
+      - record: cloudbridge:ddos_attacks:by_tenant
+        expr: |
+          sum by (tenant) (
+            increase(cloudbridge_scrubbing_ddos_attacks_detected_total[1h])
+          )
+
+      # Total attacks by PoP
+      - record: cloudbridge:ddos_attacks:by_pop
+        expr: |
+          sum by (pop) (
+            increase(cloudbridge_scrubbing_ddos_attacks_detected_total[1h])
+          )
+
+      # Attack rate by type
+      - record: cloudbridge:ddos_attacks:by_type
+        expr: |
+          sum by (attack_type) (
+            rate(cloudbridge_scrubbing_ddos_attacks_detected_total[5m])
+          )
+
+      # Blackhole effectiveness (attacks vs blackholes)
+      - record: cloudbridge:blackhole:effectiveness_ratio
+        expr: |
+          sum(rate(cloudbridge_scrubbing_ddos_attacks_detected_total[5m]))
+          / sum(rate(cloudbridge_bgp_blackhole_injected_total[5m]))

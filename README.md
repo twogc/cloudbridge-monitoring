@@ -16,6 +16,7 @@
 - **Security** - NetworkPolicies, RBAC, External Secrets
 - **Backup & DR** - Автоматические бэкапы и восстановление
 - **CI/CD** - GitHub Actions с тестированием и линтингом
+- **DDoS Protection** - BGP blackhole injection, upstream scrubbing integration
 
 ## Архитектура мониторинга
 
@@ -82,6 +83,17 @@ graph TB
 - **Функции**: Alert routing, notification channels
 - **Конфигурация**: `alertmanager/`
 
+### **DDoS Protection** ⭐ NEW
+- **Назначение**: Автоматическая защита от DDoS атак
+- **Функции**:
+  - BGP blackhole injection через GoBGP v4
+  - Upstream scrubbing (Yandex Cloud, Qrator)
+  - Real-time DDoS detection (<30s)
+  - Multi-tenant isolation
+- **Конфигурация**: `exporters/scrubbing-exporter/`, `exporters/bgp-blackhole-exporter/`
+- **Документация**: [DDoS Protection Guide](docs/DDOS_PROTECTION_GUIDE.md)
+- **Quick Start**: [DDoS Quick Start](docs/DDOS_QUICKSTART.md)
+
 ## Быстрый старт
 
 ### **Развертывание Production-Ready мониторинга**
@@ -108,8 +120,15 @@ kubectl apply -f exporters/
 # 7. Настройка безопасности
 kubectl apply -f security/
 
-# 8. Проверка готовности
+# 8. Настройка безопасности
+kubectl apply -f security/
+
+# 9. Развертывание DDoS Protection (опционально)
+./scripts/deploy-scrubbing.sh
+
+# 10. Проверка готовности
 kubectl get pods -n cloudbridge-monitoring
+kubectl get pods -n cloudbridge-scrubbing  # DDoS protection
 ```
 
 ### **Установка QUIC Probe**
@@ -156,15 +175,17 @@ rule_files:
 scrape_configs:
   - job_name: 'relay-metrics'
     static_configs:
-      - targets: ['relay-mow:8080', 'relay-fra:8080', 'relay-ams:8080']
+      - targets: ['relay-mow:5551', 'relay-fra:5551', 'relay-ams:5551']
+        labels:
+          region: 'multi'
     metrics_path: '/metrics'
-    scrape_interval: 5s
-  
+    scrape_interval: 30s
+
   - job_name: 'control-plane'
     static_configs:
-      - targets: ['zitadel:8080', 'cadence:8080', 'postgresql:5432']
+      - targets: ['zitadel:8080', 'cadence:7934']
     metrics_path: '/metrics'
-  
+
   - job_name: 'ai-service'
     static_configs:
       - targets: ['ai-service:8083']

@@ -120,3 +120,9 @@ echo "  - Alertmanager: http://localhost:9093 (после port-forward)"
 
 
 
+
+
+
+
+
+

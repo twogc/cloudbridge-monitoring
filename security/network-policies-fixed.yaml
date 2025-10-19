@@ -46,7 +46,7 @@ spec:
     ports:
     - protocol: TCP
       port: 8428
-  # Разрешить исходящие соединения к targets
+  # Разрешить исходящие соединения к targets в том же namespace
   - to:
     - podSelector:
         matchLabels:
@@ -66,45 +66,66 @@ spec:
     - protocol: TCP
       port: 8080
     - protocol: TCP
-      port: 8081
+      port: 8083
     - protocol: TCP
-      port: 8082
+      port: 8084
+  # Разрешить scraping Edge PoPs в cloudbridge-relay namespace
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: cloudbridge-relay
+      podSelector:
+        matchLabels:
+          app: cloudbridge-relay
+    ports:
+    - protocol: TCP
+      port: 5551
+  # Разрешить scraping control-plane сервисов в cloudbridge namespace
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: cloudbridge
+      podSelector:
+        matchLabels:
+          app: cadence
+    - namespaceSelector:
+        matchLabels:
+          name: cloudbridge
+      podSelector:
+        matchLabels:
+          app: cloudbridge-relay
+    - namespaceSelector:
+        matchLabels:
+          name: cloudbridge
+      podSelector:
+        matchLabels:
+          app: ai-service
+    ports:
+    - protocol: TCP
+      port: 7934
     - protocol: TCP
       port: 8083
     - protocol: TCP
       port: 8084
+  # Разрешить DNS lookups
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: kube-system
+    ports:
+    - protocol: UDP
+      port: 53
     - protocol: TCP
-      port: 8085
+      port: 53
+  # Разрешить доступ к Kubernetes API
+  - to:
+    - namespaceSelector: {}
+      podSelector:
+        matchLabels:
+          component: apiserver
+    ports:
     - protocol: TCP
-      port: 8086
-    - protocol: TCP
-      port: 8087
-    - protocol: TCP
-      port: 8088
-    - protocol: TCP
-      port: 8089
-    - protocol: TCP
-      port: 8090
-    - protocol: TCP
-      port: 8091
-    - protocol: TCP
-      port: 8092
-    - protocol: TCP
-      port: 8093
-    - protocol: TCP
-      port: 8094
-    - protocol: TCP
-      port: 8095
-    - protocol: TCP
-      port: 8096
-    - protocol: TCP
-      port: 8097
-    - protocol: TCP
-      port: 8098
-    - protocol: TCP
-      port: 8099
-    - protocol: TCP
-      port: 8100
+      port: 443
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy

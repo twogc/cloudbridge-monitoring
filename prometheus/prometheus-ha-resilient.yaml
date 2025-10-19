@@ -254,6 +254,41 @@ data:
         metrics_path: '/metrics'
         scrape_interval: 30s
 
+      # Edge PoPs - Fallback Static Config (for clusters without Prometheus Operator)
+      # NOTE: ServiceMonitor is the primary method - this is fallback only
+      - job_name: 'edge-pops-relay'
+        static_configs:
+          # Moscow PoP
+          - targets: ['cloudbridge-relay-external.cloudbridge-relay.svc.cluster.local:5551']
+            labels:
+              region: 'mow'
+              pop: 'moscow'
+              environment: 'production'
+          # If using LoadBalancer IPs directly (uncomment and set IPs):
+          # - targets: ['<moscow-lb-ip>:5551']
+          #   labels:
+          #     region: 'mow'
+          #     pop: 'moscow'
+          # - targets: ['<frankfurt-lb-ip>:5551']
+          #   labels:
+          #     region: 'fra'
+          #     pop: 'frankfurt'
+          # - targets: ['<amsterdam-lb-ip>:5551']
+          #   labels:
+          #     region: 'ams'
+          #     pop: 'amsterdam'
+        metrics_path: '/metrics'
+        scrape_interval: 30s
+        scrape_timeout: 20s
+        honor_labels: true
+
+      # QUIC Probe - Custom metrics for edge connectivity
+      - job_name: 'quic-probe'
+        static_configs:
+          - targets: ['quic-probe.cloudbridge-monitoring.svc.cluster.local:8080']
+        metrics_path: '/metrics'
+        scrape_interval: 30s
+
   # Recording rules для оптимизации запросов
   recording-rules.yml: |
     groups:

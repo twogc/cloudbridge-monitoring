@@ -1,0 +1,340 @@
+{
+  "dashboard": {
+    "title": "CloudBridge DDoS Protection & Scrubbing",
+    "tags": ["ddos", "security", "bgp", "scrubbing"],
+    "timezone": "browser",
+    "schemaVersion": 38,
+    "version": 1,
+    "refresh": "30s",
+    "panels": [
+      {
+        "id": 1,
+        "title": "DDoS Attacks Detected (Last 24h)",
+        "type": "stat",
+        "gridPos": {"h": 8, "w": 6, "x": 0, "y": 0},
+        "targets": [
+          {
+            "expr": "sum(increase(cloudbridge_scrubbing_ddos_attacks_detected_total[24h]))",
+            "legendFormat": "Total Attacks"
+          }
+        ],
+        "options": {
+          "reduceOptions": {
+            "values": false,
+            "calcs": ["lastNotNull"]
+          },
+          "colorMode": "background",
+          "graphMode": "area",
+          "textMode": "value_and_name"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"value": 0, "color": "green"},
+                {"value": 10, "color": "yellow"},
+                {"value": 50, "color": "red"}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 2,
+        "title": "Active BGP Blackholes",
+        "type": "stat",
+        "gridPos": {"h": 8, "w": 6, "x": 6, "y": 0},
+        "targets": [
+          {
+            "expr": "sum(cloudbridge_bgp_blackhole_active)",
+            "legendFormat": "Active Blackholes"
+          }
+        ],
+        "options": {
+          "reduceOptions": {
+            "values": false,
+            "calcs": ["lastNotNull"]
+          },
+          "colorMode": "background",
+          "graphMode": "area",
+          "textMode": "value_and_name"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"value": 0, "color": "green"},
+                {"value": 5, "color": "yellow"},
+                {"value": 10, "color": "red"}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 3,
+        "title": "Upstream Scrubbing Status",
+        "type": "stat",
+        "gridPos": {"h": 8, "w": 6, "x": 12, "y": 0},
+        "targets": [
+          {
+            "expr": "cloudbridge_scrubbing_upstream_provider_status",
+            "legendFormat": "{{ provider }}"
+          }
+        ],
+        "options": {
+          "reduceOptions": {
+            "values": false,
+            "calcs": ["lastNotNull"]
+          },
+          "colorMode": "background",
+          "textMode": "name"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "mappings": [
+              {"type": "value", "value": 1, "text": "UP"},
+              {"type": "value", "value": 0, "text": "DOWN"}
+            ],
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"value": 0, "color": "red"},
+                {"value": 1, "color": "green"}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 4,
+        "title": "Mitigation Effectiveness",
+        "type": "stat",
+        "gridPos": {"h": 8, "w": 6, "x": 18, "y": 0},
+        "targets": [
+          {
+            "expr": "cloudbridge:blackhole:effectiveness_ratio",
+            "legendFormat": "Attacks/Blackhole Ratio"
+          }
+        ],
+        "options": {
+          "reduceOptions": {
+            "values": false,
+            "calcs": ["lastNotNull"]
+          },
+          "colorMode": "background",
+          "graphMode": "area",
+          "textMode": "value_and_name"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "decimals": 2,
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"value": 0, "color": "red"},
+                {"value": 1, "color": "yellow"},
+                {"value": 2, "color": "green"}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 5,
+        "title": "DDoS Attack Rate (5m)",
+        "type": "timeseries",
+        "gridPos": {"h": 9, "w": 12, "x": 0, "y": 8},
+        "targets": [
+          {
+            "expr": "sum by (attack_type) (rate(cloudbridge_scrubbing_ddos_attacks_detected_total[5m]))",
+            "legendFormat": "{{ attack_type }}"
+          }
+        ],
+        "options": {
+          "tooltip": {"mode": "multi"},
+          "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull", "max"]}
+        },
+        "fieldConfig": {
+          "defaults": {
+            "custom": {
+              "drawStyle": "line",
+              "lineInterpolation": "smooth",
+              "fillOpacity": 20,
+              "spanNulls": true
+            },
+            "unit": "attacks/s"
+          }
+        }
+      },
+      {
+        "id": 6,
+        "title": "BGP Blackhole Injections (5m)",
+        "type": "timeseries",
+        "gridPos": {"h": 9, "w": 12, "x": 12, "y": 8},
+        "targets": [
+          {
+            "expr": "sum by (tenant, pop) (rate(cloudbridge_bgp_blackhole_injected_total[5m]))",
+            "legendFormat": "{{ tenant }}/{{ pop }}"
+          }
+        ],
+        "options": {
+          "tooltip": {"mode": "multi"},
+          "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull", "max"]}
+        },
+        "fieldConfig": {
+          "defaults": {
+            "custom": {
+              "drawStyle": "line",
+              "lineInterpolation": "smooth",
+              "fillOpacity": 20,
+              "spanNulls": true
+            },
+            "unit": "blackholes/s"
+          }
+        }
+      },
+      {
+        "id": 7,
+        "title": "Attacks by Tenant (Last Hour)",
+        "type": "piechart",
+        "gridPos": {"h": 9, "w": 8, "x": 0, "y": 17},
+        "targets": [
+          {
+            "expr": "cloudbridge:ddos_attacks:by_tenant",
+            "legendFormat": "{{ tenant }}"
+          }
+        ],
+        "options": {
+          "legend": {"displayMode": "table", "placement": "right", "values": ["value"]},
+          "pieType": "donut"
+        }
+      },
+      {
+        "id": 8,
+        "title": "Attacks by PoP (Last Hour)",
+        "type": "piechart",
+        "gridPos": {"h": 9, "w": 8, "x": 8, "y": 17},
+        "targets": [
+          {
+            "expr": "cloudbridge:ddos_attacks:by_pop",
+            "legendFormat": "{{ pop }}"
+          }
+        ],
+        "options": {
+          "legend": {"displayMode": "table", "placement": "right", "values": ["value"]},
+          "pieType": "donut"
+        }
+      },
+      {
+        "id": 9,
+        "title": "Attacks by Type (5m rate)",
+        "type": "piechart",
+        "gridPos": {"h": 9, "w": 8, "x": 16, "y": 17},
+        "targets": [
+          {
+            "expr": "cloudbridge:ddos_attacks:by_type",
+            "legendFormat": "{{ attack_type }}"
+          }
+        ],
+        "options": {
+          "legend": {"displayMode": "table", "placement": "right", "values": ["value"]},
+          "pieType": "donut"
+        }
+      },
+      {
+        "id": 10,
+        "title": "Scrubbing Latency P95",
+        "type": "timeseries",
+        "gridPos": {"h": 9, "w": 12, "x": 0, "y": 26},
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, sum by (provider, le) (rate(cloudbridge_scrubbing_latency_seconds_bucket[5m])))",
+            "legendFormat": "{{ provider }} P95"
+          }
+        ],
+        "options": {
+          "tooltip": {"mode": "multi"},
+          "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull", "max", "mean"]}
+        },
+        "fieldConfig": {
+          "defaults": {
+            "custom": {
+              "drawStyle": "line",
+              "lineInterpolation": "smooth",
+              "fillOpacity": 10
+            },
+            "unit": "s",
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"value": 0, "color": "green"},
+                {"value": 2, "color": "yellow"},
+                {"value": 5, "color": "red"}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 11,
+        "title": "Active Blackholes by Tenant/PoP",
+        "type": "timeseries",
+        "gridPos": {"h": 9, "w": 12, "x": 12, "y": 26},
+        "targets": [
+          {
+            "expr": "cloudbridge_bgp_blackhole_active",
+            "legendFormat": "{{ tenant }}/{{ pop }}"
+          }
+        ],
+        "options": {
+          "tooltip": {"mode": "multi"},
+          "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull", "max"]}
+        },
+        "fieldConfig": {
+          "defaults": {
+            "custom": {
+              "drawStyle": "line",
+              "lineInterpolation": "stepAfter",
+              "fillOpacity": 30,
+              "spanNulls": true
+            },
+            "unit": "short"
+          }
+        }
+      },
+      {
+        "id": 12,
+        "title": "Recent DDoS Attacks (Table)",
+        "type": "table",
+        "gridPos": {"h": 10, "w": 24, "x": 0, "y": 35},
+        "targets": [
+          {
+            "expr": "cloudbridge_scrubbing_ddos_attacks_detected_total",
+            "legendFormat": "",
+            "instant": true,
+            "format": "table"
+          }
+        ],
+        "transformations": [
+          {"id": "organize", "options": {"excludeByName": {"Time": true, "__name__": true}}}
+        ],
+        "options": {
+          "showHeader": true,
+          "sortBy": [{"displayName": "Value", "desc": true}]
+        },
+        "fieldConfig": {
+          "overrides": [
+            {
+              "matcher": {"id": "byName", "options": "Value"},
+              "properties": [{"id": "custom.width", "value": 100}]
+            }
+          ]
+        }
+      }
+    ]
+  }
+}
