@@ -61,7 +61,7 @@ CloudBridge DDoS Protection provides enterprise-grade DDoS mitigation through:
 
 ### Performance Requirements
 - **Target RPS**: 800,000 requests/second
-- **Bandwidth**: ~70 Gbps (8KB average request size)
+- **Bandwidth**: 52-70 Gbps (8KB average request size + headers/overhead)
 - **PoP Distribution**: 8-12 PoP nodes (70-100k RPS per PoP)
 - **Detection Time**: <10-20 seconds
 - **Mitigation Time**: <1-5 seconds (L1/L2), <30-60 seconds (RTBH)
@@ -71,13 +71,16 @@ CloudBridge DDoS Protection provides enterprise-grade DDoS mitigation through:
 #### L0 - Anycast + BGP Distribution
 - **Anycast IPv4/IPv6** for automatic traffic distribution
 - **RTBH (RFC 7999 65535:666)** on upstream providers
+- **RTBH with NO_EXPORT community** (provider-specific)
+- **BFD** for fast withdraw (if available)
 - **BGP convergence**: 30-60 seconds
 
-#### L1 - XDP/eBPF (Pre-kernel filtering)
+#### L1 - XDP/eBPF (Before TCP/IP stack - XDP fast path)
 - **XDP-drop** for attack signatures
 - **Token-bucket per /32** for fast rate limiting
-- **QUIC anomaly detection** (abnormal Initial size, invalid DCID)
-- **Goal**: Filter 80-90% of malicious traffic before user-space
+- **QUIC anomaly detection** (abnormal Initial size, invalid DCID/SCID)
+- **UDP amplification protection** (drop excessive responses without valid tokens)
+- **Goal**: Filter 80-90% of malicious traffic before TCP/IP stack
 
 #### L2 - nftables (L3/L4 filtering)
 - **Per-/32 nft sets** with dynamic quotas
@@ -85,13 +88,16 @@ CloudBridge DDoS Protection provides enterprise-grade DDoS mitigation through:
 - **UDP pkt/s limits** per source
 
 #### L3 - L7 Edge Proxy (Envoy/Nginx-QUIC)
-- **QUIC Retry** + disable **0-RTT** in "red zone"
-- **Rate-limit service** with keys: `{tenant_id, API, IP_prefix, JA3}`
+- **QUIC Retry** + disable **0-RTT** in "DDOS MODE" (toggle on/off)
+- **Rate-limit service** with keys: `{tenant_id, path_group, ip_cidr_24, auth_state, ja3_hash}`
 - **JWT/HMAC proof-of-legit** for SDK clients
+- **L7 protection**: header/body limits, timeouts, keep-alive tuning
 
 #### L4 - Application Layer
 - **Per-tenant budgets** + circuit-breakers
 - **Shedder** (429/503) for traffic prioritization
+- **Soft degradation order**: anonymous → gray JA3/UA → low-priority paths → 0-RTT/features
+- **Legit error rate p95 < 0.5%** in DDOS MODE
 
 ## Components
 
@@ -193,9 +199,9 @@ kubectl create configmap grafana-dashboard-scrubbing \
 ### Nginx-QUIC Configuration for 800k RPS
 
 ```nginx
-# Enable QUIC Retry during attacks
-quic_retry on;
-# quic_0rtt off;  # Disable in red zone
+# DDOS MODE toggle (enable during attacks)
+quic_retry on;           # Enable QUIC Retry in DDOS MODE
+# quic_0rtt off;        # Disable 0-RTT in DDOS MODE
 
 # Rate limiting for 800k RPS
 limit_req_zone $binary_remote_addr zone=api:50m rate=200r/s;
@@ -204,18 +210,45 @@ limit_req_zone $jwt_tenant zone=tenant:50m rate=2000r/s;
 server {
     listen 443 quic reuseport;
     limit_req zone=api burst=100 nodelay;
+    
+    # L7 protection limits
+    client_max_body_size 1m;
+    client_header_buffer_size 4k;
+    large_client_header_buffers 4 8k;
+    client_body_timeout 10s;
+    client_header_timeout 10s;
+    keepalive_timeout 30s;  # Aggressive in DDOS MODE
 }
 ```
+
+### Envoy HTTP/3 Configuration
+
+```yaml
+http3_protocol_options:
+  max_header_list_size: 32768        # ~32 KB
+  disable_0rtt: true                 # Enable in DDOS MODE
+common_http_protocol_options:
+  max_headers_count: 100
+  max_stream_duration: 5s
+  idle_timeout: 30s
+route_config:
+  request_headers_to_add:
+  - header:
+      key: x-cb-tenant
+      value: "%DYNAMIC_METADATA(cb.tenant)%"
+  request_headers_to_remove: ["x-forwarded-client-cert"]
 
 ### nftables Rules for High-Scale
 
 ```nft
 table inet ddos {
-    set bad /inet ddos badsrc { type ipv4_addr; timeout 5m; }
-    chain input {
-        type filter hook input priority 0;
+    flowtable ft { hook ingress priority 0; devices = { eth0 }; }
+    set badsrc { type ipv4_addr; timeout 5m; }
+    chain ingress {
+        type filter hook ingress device eth0 priority -500;  # fast path
         ip saddr @badsrc drop
-        udp dport 443 limit rate over 2000/second add @badsrc { ip saddr } drop
+        udp dport 443 meter m1 { ip saddr limit rate over 2000/second } add @badsrc { ip saddr } drop
+        tcp flags syn meter m2 { ip saddr limit rate over 200/second } add @badsrc { ip saddr } drop
     }
 }
 ```
@@ -328,6 +361,26 @@ cloudbridge_relay_cpu_usage_percent by (pop)
 # Memory usage per PoP
 cloudbridge_relay_memory_usage_bytes by (pop)
 
+# QUIC/HTTP3 metrics
+quic_retry_rate by (pop)
+quic_h3_handshake_failures_total by (pop)
+
+# XDP/nftables drop rates
+xdp_drop_pps by (pop, protocol)
+nft_drop_pps by (pop, protocol)
+
+# Envoy overload protection
+envoy_overload_active by (pop)
+request_timeout_total by (pop)
+
+# Rate limiting service
+rls_enforce_rate by (pop, tenant)
+rls_banlist_size by (pop)
+rls_false_positive_total by (pop)
+
+# RTBH metrics
+rtbh_prefixes_active by (mask)
+
 # Attack detection time
 cloudbridge_ddos_detection_duration_seconds
 
@@ -361,6 +414,9 @@ Key alerts configured in `/prometheus/scrubbing-rules.yaml`:
 - **XDPDropRate**: XDP drop rate > 50% for 1m
 - **NftablesDropRate**: nftables drop rate > 30% for 1m
 - **QUICRetryRate**: QUIC retry rate > 20% for 1m
+- **OverloadOn**: envoy_overload_active==1 for 30s
+- **HighRetry**: quic_retry_rate > 0.25 for 1m
+- **RLSFailOpen**: RLS service unavailable → fallback policy
 
 ## Troubleshooting
 
@@ -539,6 +595,7 @@ kubectl get secret scrubbing-secrets -n cloudbridge-scrubbing -o yaml
 - **RAM**: 64-128 GB (for XDP/eBPF + applications)
 - **Network**: 2×100 GbE (for redundancy and capacity)
 - **Storage**: NVMe SSD (for caching and logs)
+- **L7 nodes**: SO_REUSEPORT + irq/CPU pinning required
 
 #### Total Infrastructure
 - **PoP Nodes**: 8-12 nodes
@@ -572,12 +629,12 @@ kubectl get secret scrubbing-secrets -n cloudbridge-scrubbing -o yaml
 
 ### RTK (Ростелеком)
 
-**Method**: Manual coordination
+**Method**: Manual coordination + RTBH/scrubbing by contract
 
 **Setup**:
 1. Contact RTK for DDoS protection contract
 2. Coordinate prefix announcements
-3. Manual activation during attacks
+3. RTBH and scrubbing **by contract**; some scenarios require manual activation
 
 ## High-Scale Deployment Plan
 
@@ -604,6 +661,44 @@ kubectl get secret scrubbing-secrets -n cloudbridge-scrubbing -o yaml
 2. **Setup upstream scrubbing** for 70+ Gbps capacity
 3. **Test BGP blackhole** injection and withdrawal
 4. **Validate end-to-end** protection
+
+## DDOS MODE Runbook
+
+### Enable DDOS MODE (Attack Response)
+
+1. **Enable Protection**:
+   - `quic_retry on`
+   - `disable_0rtt` 
+   - Stricter RLS limits
+   - Enable XDP "strict" profile
+
+2. **Prioritize Traffic**:
+   - Auth/API core endpoints first
+   - Disable heavy endpoints/aggregations
+   - Enable circuit-breakers
+
+3. **Escalate Protection**:
+   - Auto-RTBH by /32 → escalate to /24 if confirmed attack
+   - Activate upstream scrubbing
+   - Monitor false positives
+
+4. **Observe Metrics**:
+   - `legit_error_rate p95 < 0.5%`
+   - `quic_retry_rate`
+   - `xdp_drop_pps`, `nft_drop_pps`
+   - `envoy_overload_active`
+
+5. **Restore Normal Mode**:
+   - Hysteresis: 10-15 minutes without anomalies
+   - Gradual relaxation of limits
+   - Monitor for attack recurrence
+
+### RTBH Escalation Strategy
+
+- **/32 RTBH**: Immediate response to confirmed attacks
+- **/24 RTBH**: Escalation for sustained attacks
+- **NO_EXPORT community**: Provider-specific requirements
+- **BFD**: Fast withdraw when available
 
 ## Support
 
