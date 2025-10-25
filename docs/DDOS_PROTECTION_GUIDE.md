@@ -9,6 +9,7 @@ CloudBridge DDoS Protection provides enterprise-grade DDoS mitigation through:
 - **Upstream Scrubbing Integration**: BGP peering with Yandex Cloud, Qrator Labs
 - **Multi-Tenancy Support**: Tenant and PoP-level isolation and metrics
 - **Comprehensive Monitoring**: Prometheus metrics and Grafana dashboards
+- **High-Scale Support**: Up to 800k RPS with multi-layer protection stack
 
 ## Architecture
 
@@ -55,6 +56,42 @@ CloudBridge DDoS Protection provides enterprise-grade DDoS mitigation through:
                                │  Scrubbing)      │
                                └──────────────────┘
 ```
+
+## High-Scale Architecture (800k RPS)
+
+### Performance Requirements
+- **Target RPS**: 800,000 requests/second
+- **Bandwidth**: ~70 Gbps (8KB average request size)
+- **PoP Distribution**: 8-12 PoP nodes (70-100k RPS per PoP)
+- **Detection Time**: <10-20 seconds
+- **Mitigation Time**: <1-5 seconds (L1/L2), <30-60 seconds (RTBH)
+
+### Multi-Layer Protection Stack
+
+#### L0 - Anycast + BGP Distribution
+- **Anycast IPv4/IPv6** for automatic traffic distribution
+- **RTBH (RFC 7999 65535:666)** on upstream providers
+- **BGP convergence**: 30-60 seconds
+
+#### L1 - XDP/eBPF (Pre-kernel filtering)
+- **XDP-drop** for attack signatures
+- **Token-bucket per /32** for fast rate limiting
+- **QUIC anomaly detection** (abnormal Initial size, invalid DCID)
+- **Goal**: Filter 80-90% of malicious traffic before user-space
+
+#### L2 - nftables (L3/L4 filtering)
+- **Per-/32 nft sets** with dynamic quotas
+- **QUIC Retry** during attacks (reduces amplification)
+- **UDP pkt/s limits** per source
+
+#### L3 - L7 Edge Proxy (Envoy/Nginx-QUIC)
+- **QUIC Retry** + disable **0-RTT** in "red zone"
+- **Rate-limit service** with keys: `{tenant_id, API, IP_prefix, JA3}`
+- **JWT/HMAC proof-of-legit** for SDK clients
+
+#### L4 - Application Layer
+- **Per-tenant budgets** + circuit-breakers
+- **Shedder** (429/503) for traffic prioritization
 
 ## Components
 
@@ -151,6 +188,44 @@ kubectl create configmap grafana-dashboard-scrubbing \
     -n cloudbridge-monitoring
 ```
 
+## High-Scale Configuration
+
+### Nginx-QUIC Configuration for 800k RPS
+
+```nginx
+# Enable QUIC Retry during attacks
+quic_retry on;
+# quic_0rtt off;  # Disable in red zone
+
+# Rate limiting for 800k RPS
+limit_req_zone $binary_remote_addr zone=api:50m rate=200r/s;
+limit_req_zone $jwt_tenant zone=tenant:50m rate=2000r/s;
+
+server {
+    listen 443 quic reuseport;
+    limit_req zone=api burst=100 nodelay;
+}
+```
+
+### nftables Rules for High-Scale
+
+```nft
+table inet ddos {
+    set bad /inet ddos badsrc { type ipv4_addr; timeout 5m; }
+    chain input {
+        type filter hook input priority 0;
+        ip saddr @badsrc drop
+        udp dport 443 limit rate over 2000/second add @badsrc { ip saddr } drop
+    }
+}
+```
+
+### XDP/eBPF Configuration
+
+- **XDP drop profile** for QUIC anomalies
+- **Token-bucket per /32** for rate limiting
+- **UDP pkt/s limits** per source
+
 ## Configuration
 
 ### API Keys (Optional)
@@ -238,6 +313,31 @@ rate(cloudbridge_bgp_blackhole_injected_total[5m])
 cloudbridge:blackhole:effectiveness_ratio
 ```
 
+#### High-Scale Performance Metrics
+
+```promql
+# RPS per PoP (target: 70-100k RPS)
+rate(cloudbridge_relay_requests_total[1m]) by (pop)
+
+# Bandwidth per PoP (target: 8-10 Gbps)
+rate(cloudbridge_relay_bytes_total[1m]) by (pop) * 8
+
+# CPU utilization per PoP
+cloudbridge_relay_cpu_usage_percent by (pop)
+
+# Memory usage per PoP
+cloudbridge_relay_memory_usage_bytes by (pop)
+
+# Attack detection time
+cloudbridge_ddos_detection_duration_seconds
+
+# Mitigation effectiveness
+cloudbridge_ddos_mitigation_effectiveness_ratio
+
+# False positive rate
+cloudbridge_ddos_false_positive_rate
+```
+
 ### Alerts
 
 Key alerts configured in `/prometheus/scrubbing-rules.yaml`:
@@ -248,6 +348,19 @@ Key alerts configured in `/prometheus/scrubbing-rules.yaml`:
 - **BGPBlackholeInjected**: Blackhole route injected
 - **UpstreamScrubbingDown**: Provider unavailable
 - **TooManyActiveBlackholes**: >10 active blackholes
+
+#### High-Scale Alerts
+
+- **HighRPSSpike**: RPS > 100k per PoP for 30s
+- **HighBandwidthSpike**: Bandwidth > 10 Gbps per PoP for 30s
+- **HighCPUUsage**: CPU > 80% per PoP for 5m
+- **HighMemoryUsage**: Memory > 80% per PoP for 5m
+- **MLAnomalyDetected**: AI anomaly score > 0.8 for 30s
+- **BehavioralAnomaly**: Behavioral score > 0.7 for 30s
+- **TrafficPatternAnomaly**: Traffic pattern score > 0.6 for 30s
+- **XDPDropRate**: XDP drop rate > 50% for 1m
+- **NftablesDropRate**: nftables drop rate > 30% for 1m
+- **QUICRetryRate**: QUIC retry rate > 20% for 1m
 
 ## Troubleshooting
 
@@ -288,6 +401,38 @@ kubectl exec -n cloudbridge-dns-network <gobgp-pod> -- gobgpcli global rib
 **Check for blackhole community (65535:666)**:
 ```bash
 kubectl exec -n cloudbridge-dns-network <gobgp-pod> -- gobgpcli global rib -a ipv4 | grep 65535:666
+```
+
+### High-Scale Performance Issues
+
+**Check RPS per PoP**:
+```bash
+kubectl exec -n cloudbridge-scrubbing deployment/scrubbing-exporter -- \
+  curl -s http://localhost:8080/metrics | grep cloudbridge_relay_requests_total
+```
+
+**Check bandwidth per PoP**:
+```bash
+kubectl exec -n cloudbridge-scrubbing deployment/scrubbing-exporter -- \
+  curl -s http://localhost:8080/metrics | grep cloudbridge_relay_bytes_total
+```
+
+**Check CPU usage per PoP**:
+```bash
+kubectl exec -n cloudbridge-scrubbing deployment/scrubbing-exporter -- \
+  curl -s http://localhost:8080/metrics | grep cloudbridge_relay_cpu_usage
+```
+
+**Check XDP drop rate**:
+```bash
+kubectl exec -n cloudbridge-scrubbing deployment/scrubbing-exporter -- \
+  curl -s http://localhost:8080/metrics | grep cloudbridge_xdp_drop_rate
+```
+
+**Check nftables drop rate**:
+```bash
+kubectl exec -n cloudbridge-scrubbing deployment/scrubbing-exporter -- \
+  curl -s http://localhost:8080/metrics | grep cloudbridge_nftables_drop_rate
 ```
 
 ### Alertmanager Webhook Not Triggering
@@ -375,6 +520,32 @@ kubectl get secret scrubbing-secrets -n cloudbridge-scrubbing -o yaml
 - **Blackhole routes**: Unlimited (GoBGP scales to 100k+ routes)
 - **Tenants**: Unlimited (metrics labeled by tenant/PoP)
 
+### High-Scale SLO Targets
+
+| Metric | Target | Measurement |
+|--------|--------|-------------|
+| **Detection Time** | < 10-20s | AI/ML anomaly detection |
+| **L1/L2 Mitigation** | < 1-5s | XDP/nftables filtering |
+| **RTBH Injection** | < 30-60s | BGP convergence |
+| **False Positive Rate** | < 0.5% | Legitimate traffic errors |
+| **PoP Capacity** | 70-100k RPS | Per PoP performance |
+| **Total Capacity** | 800k RPS | System-wide performance |
+| **Bandwidth** | 70 Gbps | Total traffic capacity |
+
+### High-Scale Resource Requirements
+
+#### Hardware per PoP
+- **CPU**: 16-32 cores (for 70-100k RPS)
+- **RAM**: 64-128 GB (for XDP/eBPF + applications)
+- **Network**: 2×100 GbE (for redundancy and capacity)
+- **Storage**: NVMe SSD (for caching and logs)
+
+#### Total Infrastructure
+- **PoP Nodes**: 8-12 nodes
+- **Monthly Cost**: ~$500K (hardware + upstream scrubbing)
+- **Implementation Time**: 2-3 months
+- **Maintenance**: 24/7 monitoring and response
+
 ## Upstream Integration
 
 ### Yandex Cloud DDoS Protection
@@ -407,6 +578,32 @@ kubectl get secret scrubbing-secrets -n cloudbridge-scrubbing -o yaml
 1. Contact RTK for DDoS protection contract
 2. Coordinate prefix announcements
 3. Manual activation during attacks
+
+## High-Scale Deployment Plan
+
+### Phase 1: Infrastructure (Week 1-2)
+1. **Deploy 8-12 PoP nodes** with 2×100 GbE each
+2. **Configure anycast** for automatic load distribution
+3. **Setup XDP/eBPF** filtering on each PoP
+4. **Deploy nftables** rules for L3/L4 filtering
+
+### Phase 2: Application Layer (Week 3-4)
+1. **Configure Nginx-QUIC** with retry and rate limiting
+2. **Deploy Envoy RLS** for rate limiting service
+3. **Setup JWT/HMAC** authentication for SDK clients
+4. **Configure circuit-breakers** and shedder
+
+### Phase 3: Monitoring & AI (Week 5-6)
+1. **Deploy AI/ML detection** with CloudBridge AI Service
+2. **Configure Prometheus** alerts for high-scale metrics
+3. **Setup Grafana** dashboards for 800k RPS monitoring
+4. **Test end-to-end** protection with load testing
+
+### Phase 4: Upstream Integration (Week 7-8)
+1. **Configure RTBH** with Qrator/Yandex/RTK
+2. **Setup upstream scrubbing** for 70+ Gbps capacity
+3. **Test BGP blackhole** injection and withdrawal
+4. **Validate end-to-end** protection
 
 ## Support
 
