@@ -99,15 +99,16 @@ Internet
 #### L2 - nftables (Kernel-level L3/L4 filtering)
 - **Per-/32 nft sets** with dynamic quotas
 - **Flowtable** for fast packet processing
-- **QUIC Retry** during attacks (reduces amplification)
 - **UDP pkt/s limits** per source
 - **Auto-ban** 60-300s for violating sources
+- **Bypass conntrack** for UDP/443 to reduce CPU load
 
 #### L3 - L7 Edge Proxy (Envoy/Nginx-QUIC)
 - **QUIC Retry** + disable **0-RTT** in "DDOS MODE" (toggle on/off)
 - **Rate-limit service** with keys: `{tenant_id, path_group, ip_cidr_24, auth_state, ja3_hash}`
 - **JWT/HMAC proof-of-legit** for SDK clients
 - **L7 protection**: header/body limits, timeouts, keep-alive tuning
+- **IPv6 support**: anycast v6, drop extension headers, /64 rate limiting
 
 #### L4 - Application Layer (Kubernetes)
 - **Per-tenant budgets** + circuit-breakers
@@ -268,6 +269,7 @@ route_config:
       key: x-cb-tenant
       value: "%DYNAMIC_METADATA(cb.tenant)%"
   request_headers_to_remove: ["x-forwarded-client-cert"]
+```
 
 ### nftables Rules for High-Scale
 
@@ -275,11 +277,17 @@ route_config:
 table inet ddos {
     flowtable ft { hook ingress priority 0; devices = { eth0 }; }
     set badsrc { type ipv4_addr; timeout 5m; }
+    set bad24 { type ipv4_addr; timeout 5m; }
+    chain preraw {
+        type filter hook prerouting priority -300;  # before conntrack
+        udp dport 443 notrack
+    }
     chain ingress {
         type filter hook ingress device eth0 priority -500;  # fast path
         ip saddr @badsrc drop
-        udp dport 443 meter m1 { ip saddr limit rate over 2000/second } add @badsrc { ip saddr } drop
-        tcp flags syn meter m2 { ip saddr limit rate over 200/second } add @badsrc { ip saddr } drop
+        udp dport 443 meter quic { ip saddr limit rate over 2000/second } add @badsrc { ip saddr } drop
+        tcp flags syn meter syn { ip saddr limit rate over 200/second } add @badsrc { ip saddr } drop
+        ip saddr @badsrc add @bad24 { ip saddr & 255.255.255.0 }  # escalate to /24
     }
 }
 ```
@@ -288,6 +296,22 @@ table inet ddos {
 
 - **XDP drop profile** for QUIC anomalies
 - **Token-bucket per /32** for rate limiting
+
+### Host Tuning for Edge Nodes
+
+To handle 70-100k RPS per PoP and high pps:
+
+```bash
+# IRQ pinning and RPS
+ethtool -K eth0 gro on gso on tso on
+echo f > /proc/irq/<IRQ>/smp_affinity
+echo 32768 > /proc/sys/net/core/somaxconn
+echo "4096 87380 33554432" > /proc/sys/net/ipv4/tcp_rmem
+echo "4096 87380 33554432" > /proc/sys/net/ipv4/tcp_wmem
+sysctl -w net.core.rmem_max=33554432 net.core.wmem_max=33554432
+# UDP: increase buffers
+sysctl -w net.core.netdev_max_backlog=250000
+```
 - **UDP pkt/s limits** per source
 
 ## Configuration
@@ -732,6 +756,15 @@ kubectl get secret scrubbing-secrets -n cloudbridge-scrubbing -o yaml
 - **NO_EXPORT community**: Provider-specific requirements
 - **BFD**: Fast withdraw when available
 
+**RTBH Communities**:
+```
+RTBH communities:
+- 65535:666 (BLACKHOLE, RFC 7999)
+- <provider>:666 (provider-specific)
+- NO_EXPORT (as required by upstream)
+Escalation: /32 → /24 (only for confirmed attacks), rollback via BFD/timer
+```
+
 ## Hybrid Architecture: Edge + Kubernetes
 
 ### Edge PoP (Bare Metal/VMs)
@@ -751,10 +784,11 @@ kubectl get secret scrubbing-secrets -n cloudbridge-scrubbing -o yaml
 ```
 
 **Edge Responsibilities**:
-- **L0-L2 Protection**: Anycast, BGP, XDP/eBPF, nftables
+- **L0-L2 Protection**: Anycast IPv4/IPv6, BGP, XDP/eBPF, nftables
 - **High-performance filtering**: 10M+ pps, 1M+ pps
 - **L7 Edge Proxy**: Nginx-QUIC/Envoy with DDOS MODE toggles
 - **BGP Management**: RTBH injection/withdrawal
+- **IPv6 Support**: anycast v6, drop extension headers, /64 rate limiting
 
 **Kubernetes Responsibilities**:
 - **L7 Business Logic**: Per-tenant rate limits, circuit-breakers
