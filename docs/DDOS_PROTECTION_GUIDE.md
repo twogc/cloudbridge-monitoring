@@ -66,6 +66,20 @@ CloudBridge DDoS Protection provides enterprise-grade DDoS mitigation through:
 - **Detection Time**: <10-20 seconds
 - **Mitigation Time**: <1-5 seconds (L1/L2), <30-60 seconds (RTBH)
 
+### Why Edge-Level Protection is Critical
+
+Kubernetes adds **user-space/overlay-overhead** (CNI, ingress, sidecars), therefore **L0-L2 mitigation must work on the host** before packets enter the cluster. Inside the cluster, only **L7 logic** should remain: per-tenant rate limits, circuit-breakers, shedder.
+
+**Target Architecture**:
+```
+Internet
+  → L0 Anycast+BGP (Edge PoP)
+  → L1 XDP/eBPF (pps, QUIC-Initial sanity, token-bucket /32)
+  → L2 nftables (L3/L4 limits, flowtable, banlists)
+  → L3 L7 proxy (Nginx-QUIC/Envoy; QUIC Retry, 0-RTT off in DDOS MODE)
+  → L4 Kubernetes apps (rate limit per tenant, circuit-breakers, SLO)
+```
+
 ### Multi-Layer Protection Stack
 
 #### L0 - Anycast + BGP Distribution
@@ -75,17 +89,19 @@ CloudBridge DDoS Protection provides enterprise-grade DDoS mitigation through:
 - **BFD** for fast withdraw (if available)
 - **BGP convergence**: 30-60 seconds
 
-#### L1 - XDP/eBPF (Before TCP/IP stack - XDP fast path)
+#### L1 - XDP/eBPF (Before kernel networking stack - XDP fast path)
 - **XDP-drop** for attack signatures
 - **Token-bucket per /32** for fast rate limiting
 - **QUIC anomaly detection** (abnormal Initial size, invalid DCID/SCID)
 - **UDP amplification protection** (drop excessive responses without valid tokens)
-- **Goal**: Filter 80-90% of malicious traffic before TCP/IP stack
+- **Goal**: Filter 80-90% of malicious traffic before kernel networking stack
 
-#### L2 - nftables (L3/L4 filtering)
+#### L2 - nftables (Kernel-level L3/L4 filtering)
 - **Per-/32 nft sets** with dynamic quotas
+- **Flowtable** for fast packet processing
 - **QUIC Retry** during attacks (reduces amplification)
 - **UDP pkt/s limits** per source
+- **Auto-ban** 60-300s for violating sources
 
 #### L3 - L7 Edge Proxy (Envoy/Nginx-QUIC)
 - **QUIC Retry** + disable **0-RTT** in "DDOS MODE" (toggle on/off)
@@ -93,11 +109,26 @@ CloudBridge DDoS Protection provides enterprise-grade DDoS mitigation through:
 - **JWT/HMAC proof-of-legit** for SDK clients
 - **L7 protection**: header/body limits, timeouts, keep-alive tuning
 
-#### L4 - Application Layer
+#### L4 - Application Layer (Kubernetes)
 - **Per-tenant budgets** + circuit-breakers
 - **Shedder** (429/503) for traffic prioritization
 - **Soft degradation order**: anonymous → gray JA3/UA → low-priority paths → 0-RTT/features
 - **Legit error rate p95 < 0.5%** in DDOS MODE
+
+### Performance Comparison: Edge vs Kubernetes
+
+| Component | In K8s (typical) | On Edge (host) | Notes |
+|-----------|------------------|----------------|-------|
+| **XDP/eBPF** | ✖ Not available | ✔ 10M+ pps | Must be on edge before cluster |
+| **nftables flowtable** | △ (hostNetwork) | ✔ 1M+ pps | More efficient outside cluster |
+| **L7 QUIC/HTTP3 proxy** | △ (ingress) | ✔ 300k-500k+ RPS/node | In K8s only if traffic is "cleaned" |
+| **BGP/RTBH** | ✖ Not available | ✔ Native support | Network/router functions |
+| **Rate-limit per tenant** | ✔ Suitable | ✔ Suitable | In K8s - business quotas and SLO |
+| **Service Mesh** | △ Possible | — Not needed | Often disabled in DDoS scenarios |
+
+> △ — Possible but with caveats (hostNetwork, eBPF-kube-proxy, irq-pinning, etc.)
+
+**Note**: Performance numbers depend on configuration (hostNetwork, SO_REUSEPORT, irq-pinning, zero-copy, eBPF kube-proxy vs iptables, hardware NIC/NUMA). Values shown are typical orders of magnitude with standard settings.
 
 ## Components
 
@@ -667,10 +698,11 @@ kubectl get secret scrubbing-secrets -n cloudbridge-scrubbing -o yaml
 ### Enable DDOS MODE (Attack Response)
 
 1. **Enable Protection**:
-   - `quic_retry on`
-   - `disable_0rtt` 
-   - Stricter RLS limits
-   - Enable XDP "strict" profile
+   - **QUIC**: `retry on`, `0-RTT off`, smaller initial cwnd
+   - **L7**: RLS keys `{tenant, path_group, /24, ja3, auth_state}`, strict timeouts
+   - **L2**: nftables flowtable + per-/32 meters (UDP pkt/s, SYN/s) → auto-ban 60-300s
+   - **L1**: XDP drop abnormal QUIC Initial, token-bucket /32
+   - **BGP**: RTBH `/32 → /24` by escalation, optionally `NO_EXPORT`
 
 2. **Prioritize Traffic**:
    - Auth/API core endpoints first
@@ -699,6 +731,44 @@ kubectl get secret scrubbing-secrets -n cloudbridge-scrubbing -o yaml
 - **/24 RTBH**: Escalation for sustained attacks
 - **NO_EXPORT community**: Provider-specific requirements
 - **BFD**: Fast withdraw when available
+
+## Hybrid Architecture: Edge + Kubernetes
+
+### Edge PoP (Bare Metal/VMs)
+```
+┌─────────────────────────────────────────────────────────┐
+│                CloudBridge Edge PoP                    │
+│                                                         │
+│  ┌─────────────────┐    ┌─────────────────────────────┐ │
+│  │   Bare Metal    │    │     Kubernetes Cluster     │ │
+│  │                 │    │                            │ │
+│  │ • XDP/eBPF      │────│ • Application Services     │ │
+│  │ • nftables      │    │ • Rate Limiting            │ │
+│  │ • Nginx-QUIC    │    │ • Circuit Breakers         │ │
+│  │ • BGP           │    │ • Monitoring                │ │
+│  └─────────────────┘    └─────────────────────────────┘ │
+└─────────────────────────────────────────────────────────┘
+```
+
+**Edge Responsibilities**:
+- **L0-L2 Protection**: Anycast, BGP, XDP/eBPF, nftables
+- **High-performance filtering**: 10M+ pps, 1M+ pps
+- **L7 Edge Proxy**: Nginx-QUIC/Envoy with DDOS MODE toggles
+- **BGP Management**: RTBH injection/withdrawal
+
+**Kubernetes Responsibilities**:
+- **L7 Business Logic**: Per-tenant rate limits, circuit-breakers
+- **Application Services**: Core business functionality
+- **Monitoring**: Metrics collection, alerting
+- **Service Mesh**: Optional, often disabled during attacks
+
+### Traffic Flow
+```
+Internet → Edge PoP (Bare Metal) → K8s Cluster (Apps)
+         ↑                        ↑
+    DDoS Protection          Business Logic
+    (XDP/nftables)          (Rate limiting)
+```
 
 ## Support
 
