@@ -1,0 +1,170 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: fastnetmon-integration-netpol
+  namespace: cloudbridge-monitoring
+  labels:
+    app: fastnetmon-integration
+spec:
+  podSelector:
+    matchLabels:
+      app: fastnetmon-integration
+  policyTypes:
+    - Ingress
+    - Egress
+
+  # Ingress rules
+  ingress:
+    # 1. Webhooks from FastNetMon
+    - from:
+        - podSelector:
+            matchLabels:
+              app: fastnetmon
+        - ipBlock:
+            cidr: 0.0.0.0/0  # Allow external FastNetMon instances
+      ports:
+        - protocol: TCP
+          port: 8080
+
+    # 2. Prometheus metrics
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              monitoring: prometheus
+      ports:
+        - protocol: TCP
+          port: 8080
+
+    # 3. Health checks from Kubernetes
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: TCP
+          port: 8080
+
+  # Egress rules
+  egress:
+    # 1. FastNetMon API
+    - to:
+        - podSelector:
+            matchLabels:
+              app: fastnetmon
+      ports:
+        - protocol: TCP
+          port: 10007  # FastNetMon API port
+
+    # 2. Scrubbing manager (cloudbridge-ddos namespace)
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: cloudbridge-ddos
+          podSelector:
+            matchLabels:
+              app: scrubbing-manager
+      ports:
+        - protocol: TCP
+          port: 8080
+
+    # 3. BGP manager (cloudbridge-ddos namespace)
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: cloudbridge-ddos
+          podSelector:
+            matchLabels:
+              app: bgp-manager
+      ports:
+        - protocol: TCP
+          port: 8080
+
+    # 4. DNS
+    - to:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+
+---
+# Cilium NetworkPolicy для advanced features
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: fastnetmon-integration-cilium
+  namespace: cloudbridge-monitoring
+spec:
+  endpointSelector:
+    matchLabels:
+      app: fastnetmon-integration
+
+  ingress:
+    # Webhooks с rate limiting
+    - fromEndpoints:
+        - matchLabels:
+            app: fastnetmon
+
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+
+          # Rate limiting для защиты от webhook флуда
+          rateLimit:
+            packetsPerSecond: 100
+            burst: 200
+
+    # Prometheus без rate limiting
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: prometheus
+
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+
+  egress:
+    # FastNetMon API
+    - toEndpoints:
+        - matchLabels:
+            app: fastnetmon
+
+      toPorts:
+        - ports:
+            - port: "10007"
+              protocol: TCP
+
+    # Scrubbing manager
+    - toFQDNs:
+        - matchName: "scrubbing-manager.cloudbridge-ddos.svc.cluster.local"
+
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+
+    # BGP manager
+    - toFQDNs:
+        - matchName: "bgp-manager.cloudbridge-ddos.svc.cluster.local"
+
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+
+    # DNS
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: ANY

@@ -1,0 +1,295 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fastnetmon-integration-config
+  namespace: cloudbridge-monitoring
+  labels:
+    app: fastnetmon-integration
+data:
+  config.yaml: |
+    # FastNetMon Integration Configuration
+    fastnetmon:
+      endpoint: http://fastnetmon:10007
+      poll_interval: 10s
+
+    mitigation:
+      auto_select_strategy: true
+      auto_approve: false
+      auto_approve_threshold: 0.95
+      min_confidence: 0.85
+      default_duration: 1h
+
+      # Strategy selection thresholds
+      rtbh_threshold_gbps: 5.0
+      scrubbing_threshold_gbps: 10.0
+
+    integration:
+      scrubbing_endpoint: http://scrubbing-manager.cloudbridge-ddos:8080
+      bgp_endpoint: http://bgp-manager.cloudbridge-ddos:8080
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: fastnetmon-credentials
+  namespace: cloudbridge-monitoring
+  labels:
+    app: fastnetmon-integration
+type: Opaque
+stringData:
+  # Замените на реальные credentials
+  FASTNETMON_API_KEY: "your-fastnetmon-api-key"
+  FASTNETMON_API_SECRET: "your-fastnetmon-api-secret"
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fastnetmon-integration
+  namespace: cloudbridge-monitoring
+  labels:
+    app: fastnetmon-integration
+    component: ddos-detection
+spec:
+  replicas: 2  # HA deployment
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: fastnetmon-integration
+  template:
+    metadata:
+      labels:
+        app: fastnetmon-integration
+        component: ddos-detection
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: fastnetmon-integration
+
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: fastnetmon-integration
+                topologyKey: kubernetes.io/hostname
+
+      containers:
+        - name: integration
+          image: cloudbridge/fastnetmon-integration:latest
+          imagePullPolicy: IfNotPresent
+
+          args:
+            - --fastnetmon-endpoint=http://fastnetmon:10007
+            - --webhook-addr=:8080
+            - --scrubbing-endpoint=http://scrubbing-manager.cloudbridge-ddos:8080
+            - --bgp-endpoint=http://bgp-manager.cloudbridge-ddos:8080
+            - --auto-select-strategy=true
+            - --auto-approve=false
+            - --auto-approve-threshold=0.95
+            - --min-confidence=0.85
+            - --rtbh-threshold-gbps=5.0
+            - --scrubbing-threshold-gbps=10.0
+            - --default-duration=1h
+            - --log-level=info
+
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+
+          env:
+            - name: FASTNETMON_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: fastnetmon-credentials
+                  key: FASTNETMON_API_KEY
+            - name: FASTNETMON_API_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: fastnetmon-credentials
+                  key: FASTNETMON_API_SECRET
+
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fastnetmon-integration
+  namespace: cloudbridge-monitoring
+  labels:
+    app: fastnetmon-integration
+spec:
+  type: ClusterIP
+  selector:
+    app: fastnetmon-integration
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+      protocol: TCP
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: fastnetmon-integration
+  namespace: cloudbridge-monitoring
+  labels:
+    app: fastnetmon-integration
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: fastnetmon-integration
+  namespace: cloudbridge-monitoring
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps", "secrets"]
+    verbs: ["get", "list", "watch"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: fastnetmon-integration
+  namespace: cloudbridge-monitoring
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: fastnetmon-integration
+subjects:
+  - kind: ServiceAccount
+    name: fastnetmon-integration
+    namespace: cloudbridge-monitoring
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: fastnetmon-integration-pdb
+  namespace: cloudbridge-monitoring
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: fastnetmon-integration
+
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: fastnetmon-integration-hpa
+  namespace: cloudbridge-monitoring
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: fastnetmon-integration
+  minReplicas: 2
+  maxReplicas: 5
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+
+---
+# Prometheus ServiceMonitor
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: fastnetmon-integration
+  namespace: cloudbridge-monitoring
+  labels:
+    app: fastnetmon-integration
+    prometheus: cloudbridge
+spec:
+  selector:
+    matchLabels:
+      app: fastnetmon-integration
+  endpoints:
+    - port: http
+      interval: 30s
+      path: /metrics
+
+---
+# Ingress для webhook (если нужен внешний доступ)
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: fastnetmon-webhook
+  namespace: cloudbridge-monitoring
+  labels:
+    app: fastnetmon-integration
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - fastnetmon-webhook.cloudbridge.example.com
+      secretName: fastnetmon-webhook-tls
+  rules:
+    - host: fastnetmon-webhook.cloudbridge.example.com
+      http:
+        paths:
+          - path: /webhook
+            pathType: Prefix
+            backend:
+              service:
+                name: fastnetmon-integration
+                port:
+                  number: 8080
