@@ -1,6 +1,6 @@
 module github.com/2gc-dev/cloudbridge-monitoring/exporters/scrubbing-exporter
 
-go 1.25
+go 1.25.3
 
 require (
 	github.com/prometheus/client_golang v1.23.2

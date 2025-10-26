@@ -1,0 +1,239 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: flow-telemetry-collector-netpol
+  namespace: cloudbridge-monitoring
+  labels:
+    app: flow-telemetry
+spec:
+  podSelector:
+    matchLabels:
+      app: flow-telemetry
+      component: collector
+  policyTypes:
+    - Ingress
+    - Egress
+
+  # Ingress rules
+  ingress:
+    # 1. Flow data from network devices (sFlow/NetFlow/IPFIX)
+    # Allow from anywhere since we're on host network
+    - from:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
+        - protocol: UDP
+          port: 6343  # sFlow
+        - protocol: UDP
+          port: 2055  # NetFlow
+        - protocol: UDP
+          port: 4739  # IPFIX
+
+    # 2. Prometheus metrics scraping
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              monitoring: prometheus
+      ports:
+        - protocol: TCP
+          port: 9090
+
+    # 3. Health checks from Kubernetes
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: TCP
+          port: 9090
+
+  # Egress rules
+  egress:
+    # 1. DNS
+    - to:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+
+    # 2. Aggregator service (if using centralized aggregator)
+    - to:
+        - podSelector:
+            matchLabels:
+              app: flow-telemetry
+              component: aggregator
+      ports:
+        - protocol: TCP
+          port: 8080
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: flow-telemetry-aggregator-netpol
+  namespace: cloudbridge-monitoring
+  labels:
+    app: flow-telemetry
+spec:
+  podSelector:
+    matchLabels:
+      app: flow-telemetry
+      component: aggregator
+  policyTypes:
+    - Ingress
+    - Egress
+
+  # Ingress rules
+  ingress:
+    # 1. From collectors
+    - from:
+        - podSelector:
+            matchLabels:
+              app: flow-telemetry
+              component: collector
+      ports:
+        - protocol: TCP
+          port: 8080
+
+    # 2. From DDoS protection system
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: cloudbridge-ddos
+        - podSelector:
+            matchLabels:
+              component: detection
+      ports:
+        - protocol: TCP
+          port: 8080
+
+    # 3. Prometheus metrics
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              monitoring: prometheus
+      ports:
+        - protocol: TCP
+          port: 9090
+
+  # Egress rules
+  egress:
+    # 1. DNS
+    - to:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+
+    # 2. Redis (для состояния)
+    - to:
+        - podSelector:
+            matchLabels:
+              app: redis
+      ports:
+        - protocol: TCP
+          port: 6379
+
+    # 3. DDoS detection API
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: cloudbridge-ddos
+      ports:
+        - protocol: TCP
+          port: 8080
+
+---
+# Cilium NetworkPolicy для advanced filtering
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: flow-telemetry-collector-cilium
+  namespace: cloudbridge-monitoring
+spec:
+  endpointSelector:
+    matchLabels:
+      app: flow-telemetry
+      component: collector
+
+  ingress:
+    # Flow data от network devices - rate limiting
+    - fromCIDR:
+        - 0.0.0.0/0
+
+      toPorts:
+        - ports:
+            - port: "6343"
+              protocol: UDP
+            - port: "2055"
+              protocol: UDP
+            - port: "4739"
+              protocol: UDP
+
+          # Rate limiting чтобы защититься от флуда
+          rateLimit:
+            packetsPerSecond: 10000  # 10K pps per source
+            burst: 20000
+            blockDuration: "1m"
+
+    # Metrics без rate limiting
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: prometheus
+
+      toPorts:
+        - ports:
+            - port: "9090"
+              protocol: TCP
+
+  egress:
+    # Разрешаем DNS
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: ANY
+
+    # Aggregator
+    - toEndpoints:
+        - matchLabels:
+            app: flow-telemetry
+            component: aggregator
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+
+---
+# Quality of Service (QoS) для critical telemetry
+apiVersion: v1
+kind: Pod
+metadata:
+  name: flow-telemetry-qos-example
+  namespace: cloudbridge-monitoring
+  labels:
+    app: flow-telemetry
+    qos: guaranteed
+spec:
+  containers:
+    - name: collector
+      image: cloudbridge/flow-telemetry-collector:latest
+      resources:
+        # Guaranteed QoS: requests = limits
+        requests:
+          cpu: "1"
+          memory: "1Gi"
+        limits:
+          cpu: "1"
+          memory: "1Gi"

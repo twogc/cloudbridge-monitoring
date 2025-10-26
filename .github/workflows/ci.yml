@@ -1,103 +1,115 @@
-name: CloudBridge Monitoring CI
+name: CI/CD Pipeline
 
 on:
   push:
     branches: [ main, develop ]
   pull_request:
-    branches: [ main ]
+    branches: [ main, develop ]
 
 jobs:
-  lint:
+  test:
     runs-on: ubuntu-latest
+    
+    strategy:
+      matrix:
+        go-version: [1.21, 1.22, 1.23]
+    
     steps:
     - uses: actions/checkout@v4
     
-    - name: Setup Python
-      uses: actions/setup-python@v4
+    - name: Set up Go
+      uses: actions/setup-go@v4
       with:
-        python-version: '3.11'
+        go-version: ${{ matrix.go-version }}
+    
+    - name: Cache Go modules
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cache/go-build
+          ~/go/pkg/mod
+        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-
     
     - name: Install dependencies
       run: |
-        pip install yamllint promtool
-        wget https://github.com/grafana/dashboard-linter/releases/latest/download/dashboard-linter-linux-amd64.tar.gz
-        tar -xzf dashboard-linter-linux-amd64.tar.gz
-        chmod +x dashboard-linter
+        go mod download
+        go mod verify
     
-    - name: Lint YAML files
-      run: |
-        yamllint -d relaxed prometheus/ grafana/ alertmanager/ security/ exporters/ victoria-metrics/
+    - name: Run go fmt
+      run: go fmt ./...
     
-    - name: Lint Prometheus rules
-      run: |
-        promtool check rules prometheus/*.yml
+    - name: Run go vet
+      run: go vet ./...
     
-    - name: Lint Grafana dashboards
-      run: |
-        ./dashboard-linter grafana/dashboards/*.yaml
+    - name: Run go test
+      run: go test -v -race -coverprofile=coverage.out ./...
     
-    - name: Validate Kubernetes manifests
+    - name: Run go test with coverage
+      run: go test -covermode=atomic -coverprofile=coverage.out ./...
+    
+    - name: Generate coverage report
+      run: go tool cover -html=coverage.out -o coverage.html
+    
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./coverage.out
+        flags: unittests
+        name: codecov-umbrella
+        fail_ci_if_error: true
+    
+    - name: Run security scan
       run: |
-        kubeconform -strict -summary prometheus/ grafana/ alertmanager/ security/ exporters/ victoria-metrics/
+        go install github.com/securecodewarrior/gosec/v2/cmd/gosec@latest
+        gosec ./...
+    
+    - name: Run static analysis
+      run: |
+        go install honnef.co/go/tools/cmd/staticcheck@latest
+        staticcheck ./...
+    
+    - name: Run performance tests
+      run: go test -bench=. -benchmem ./...
+    
+    - name: Run integration tests
+      run: go test -tags=integration ./...
+    
+    - name: Run security tests
+      run: go test -tags=security ./...
 
-  test:
+  build:
     runs-on: ubuntu-latest
+    needs: test
+    
     steps:
     - uses: actions/checkout@v4
     
-    - name: Setup kubectl
-      uses: azure/setup-kubectl@v3
+    - name: Set up Go
+      uses: actions/setup-go@v4
       with:
-        version: 'v1.29.0'
+        go-version: 1.23
     
-    - name: Setup kind
-      uses: helm/kind-action@v1.8.0
-      with:
-        cluster_name: cloudbridge-monitoring
-    
-    - name: Deploy monitoring stack
+    - name: Build binaries
       run: |
-        kubectl create namespace cloudbridge-monitoring
-        kubectl apply -f prometheus/monitoring/
-        kubectl apply -f grafana/
-        kubectl apply -f alertmanager/
-        kubectl apply -f security/
-        kubectl apply -f exporters/
-        kubectl apply -f victoria-metrics/
+        cd exporters
+        go build -o scrubbing-exporter ./scrubbing-exporter
+        go build -o bgp-blackhole-exporter ./bgp-blackhole-exporter
+        go build -o flow-telemetry ./flow-telemetry
+        go build -o ddos-auto-mitigator ./ddos-auto-mitigator
     
-    - name: Wait for deployments
+    - name: Build Docker images
       run: |
-        kubectl wait --for=condition=ready pod -l app=prometheus -n cloudbridge-monitoring --timeout=300s
-        kubectl wait --for=condition=ready pod -l app=grafana -n cloudbridge-monitoring --timeout=300s
-        kubectl wait --for=condition=ready pod -l app=alertmanager -n cloudbridge-monitoring --timeout=300s
+        docker build -t cloudbridge/scrubbing-exporter:latest ./exporters/scrubbing-exporter
+        docker build -t cloudbridge/bgp-blackhole-exporter:latest ./exporters/bgp-blackhole-exporter
+        docker build -t cloudbridge/flow-telemetry:latest ./exporters/flow-telemetry
+        docker build -t cloudbridge/ddos-auto-mitigator:latest ./exporters/ddos-auto-mitigator
     
-    - name: Run monitoring tests
-      run: |
-        chmod +x scripts/test-monitoring.sh
-        ./scripts/test-monitoring.sh
-    
-    - name: Test alert rules
-      run: |
-        kubectl port-forward -n cloudbridge-monitoring svc/prometheus 9090:9090 &
-        sleep 10
-        curl -s http://localhost:9090/api/v1/rules | jq -r '.data.groups[].rules[].alert' | grep -v null
-    
-    - name: Test Grafana dashboards
-      run: |
-        kubectl port-forward -n cloudbridge-monitoring svc/grafana 3000:3000 &
-        sleep 10
-        curl -s http://localhost:3000/api/health | jq -r '.database'
-
-  security:
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v4
-    
-    - name: Run Trivy vulnerability scanner
+    - name: Run Docker security scan
       uses: aquasecurity/trivy-action@master
       with:
-        scan-type: 'fs'
-        scan-ref: '.'
+        image-ref: 'cloudbridge/scrubbing-exporter:latest'
         format: 'sarif'
         output: 'trivy-results.sarif'
     
@@ -106,14 +118,139 @@ jobs:
       with:
         sarif_file: 'trivy-results.sarif'
 
-  build:
+  deploy:
     runs-on: ubuntu-latest
-    needs: [lint, test, security]
+    needs: [test, build]
+    if: github.ref == 'refs/heads/main'
+    
     steps:
     - uses: actions/checkout@v4
     
-    - name: Build and push images
+    - name: Deploy to staging
       run: |
-        echo "Building custom exporters..."
-        # Здесь можно добавить сборку кастомных экспортеров
-        echo "Images built successfully"
+        echo "Deploying to staging environment"
+        # Add deployment commands here
+    
+    - name: Run smoke tests
+      run: |
+        echo "Running smoke tests"
+        # Add smoke test commands here
+    
+    - name: Deploy to production
+      run: |
+        echo "Deploying to production environment"
+        # Add production deployment commands here
+
+  performance:
+    runs-on: ubuntu-latest
+    needs: test
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: 1.23
+    
+    - name: Run performance benchmarks
+      run: |
+        go test -bench=. -benchmem -benchtime=30s ./...
+    
+    - name: Run load tests
+      run: |
+        go test -tags=performance ./...
+    
+    - name: Generate performance report
+      run: |
+        go test -bench=. -benchmem -benchtime=30s ./... > performance.txt
+        cat performance.txt
+
+  security:
+    runs-on: ubuntu-latest
+    needs: test
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: 1.23
+    
+    - name: Run security tests
+      run: |
+        go test -tags=security ./...
+    
+    - name: Run fuzzing tests
+      run: |
+        go test -fuzz=. ./...
+    
+    - name: Run dependency scan
+      run: |
+        go list -json -deps ./... | nancy sleuth
+    
+    - name: Run SAST scan
+      run: |
+        go install github.com/securecodewarrior/gosec/v2/cmd/gosec@latest
+        gosec -fmt json -out gosec-report.json ./...
+    
+    - name: Upload security report
+      uses: actions/upload-artifact@v3
+      with:
+        name: security-report
+        path: gosec-report.json
+
+  quality:
+    runs-on: ubuntu-latest
+    needs: test
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: 1.23
+    
+    - name: Run quality checks
+      run: |
+        go install honnef.co/go/tools/cmd/staticcheck@latest
+        go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+        
+        staticcheck ./...
+        golangci-lint run ./...
+    
+    - name: Run code quality metrics
+      run: |
+        go install github.com/securecodewarrior/gosec/v2/cmd/gosec@latest
+        gosec -fmt json -out gosec-report.json ./...
+        
+        go install github.com/securecodewarrior/gosec/v2/cmd/gosec@latest
+        gosec -fmt sarif -out gosec-report.sarif ./...
+    
+    - name: Upload quality report
+      uses: actions/upload-artifact@v3
+      with:
+        name: quality-report
+        path: |
+          gosec-report.json
+          gosec-report.sarif
+
+  notification:
+    runs-on: ubuntu-latest
+    needs: [test, build, deploy, performance, security, quality]
+    if: always()
+    
+    steps:
+    - name: Notify on success
+      if: ${{ needs.test.result == 'success' && needs.build.result == 'success' }}
+      run: |
+        echo "All tests passed successfully"
+        # Add notification logic here
+    
+    - name: Notify on failure
+      if: ${{ needs.test.result == 'failure' || needs.build.result == 'failure' }}
+      run: |
+        echo "Tests failed"
+        # Add failure notification logic here

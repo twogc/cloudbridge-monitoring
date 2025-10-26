@@ -3,6 +3,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"flag"
@@ -85,16 +86,16 @@ type DDoSDetector struct {
 
 // Attack представляет обнаруженную атаку
 type Attack struct {
-	TargetIP      string    `json:"target_ip"`
-	AttackType    string    `json:"attack_type"`
-	DetectedAt    time.Time `json:"detected_at"`
-	Severity      string    `json:"severity"`      // low, medium, high, critical
-	PPS           float64   `json:"pps"`           // Packets per second
-	BPS           float64   `json:"bps"`           // Bits per second
-	ErrorRate     float64   `json:"error_rate"`    // Error rate %
-	Connections   int       `json:"connections"`   // Connection count
-	Mitigated     bool      `json:"mitigated"`
-	MitigationType string   `json:"mitigation_type"` // bgp_blackhole, rate_limit, etc.
+	TargetIP       string    `json:"target_ip"`
+	AttackType     string    `json:"attack_type"`
+	DetectedAt     time.Time `json:"detected_at"`
+	Severity       string    `json:"severity"`    // low, medium, high, critical
+	PPS            float64   `json:"pps"`         // Packets per second
+	BPS            float64   `json:"bps"`         // Bits per second
+	ErrorRate      float64   `json:"error_rate"`  // Error rate %
+	Connections    int       `json:"connections"` // Connection count
+	Mitigated      bool      `json:"mitigated"`
+	MitigationType string    `json:"mitigation_type"` // bgp_blackhole, rate_limit, etc.
 }
 
 // NewDDoSDetector создает новый детектор
@@ -323,13 +324,12 @@ func (d *DDoSDetector) activateBGPBlackhole(ctx context.Context, targetIP string
 
 	payloadJSON, _ := json.Marshal(payload)
 
-	req, err := http.NewRequestWithContext(ctx, "POST", url, nil)
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(payloadJSON))
 	if err != nil {
 		return err
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	req.Body = http.NoBody
 
 	resp, err := d.httpClient.Do(req)
 	if err != nil {

@@ -1,0 +1,393 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: flow-telemetry-config
+  namespace: cloudbridge-monitoring
+  labels:
+    app: flow-telemetry
+    component: collector
+data:
+  collector.yaml: |
+    # Flow Telemetry Collector Configuration
+    sflow:
+      enabled: true
+      port: 6343
+
+    netflow:
+      enabled: true
+      port: 2055
+      version: v5
+
+    ipfix:
+      enabled: true
+      port: 4739
+
+    aggregation:
+      window_duration: 60s
+      cleanup_age: 120s
+
+    anomaly_detection:
+      enabled: true
+      threshold_std_dev: 3.0
+      min_samples: 10
+
+    attack_detection:
+      enabled: true
+      patterns:
+        - syn_flood
+        - udp_flood
+        - icmp_flood
+        - tcp_rst_flood
+
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: flow-telemetry-collector
+  namespace: cloudbridge-monitoring
+  labels:
+    app: flow-telemetry
+    component: collector
+spec:
+  selector:
+    matchLabels:
+      app: flow-telemetry
+      component: collector
+  template:
+    metadata:
+      labels:
+        app: flow-telemetry
+        component: collector
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+        prometheus.io/path: "/metrics"
+    spec:
+      # Host network для приема flow data от сетевых устройств
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+
+      serviceAccountName: flow-telemetry
+
+      containers:
+        - name: collector
+          image: cloudbridge/flow-telemetry-collector:latest
+          imagePullPolicy: IfNotPresent
+
+          args:
+            - --sflow-port=6343
+            - --netflow-port=2055
+            - --ipfix-port=4739
+            - --metrics-port=:9090
+            - --window=60s
+            - --log-level=info
+            - --enable-sflow=true
+            - --enable-netflow=true
+            - --enable-ipfix=true
+
+          ports:
+            # Flow collectors (UDP)
+            - name: sflow
+              containerPort: 6343
+              protocol: UDP
+              hostPort: 6343
+            - name: netflow
+              containerPort: 2055
+              protocol: UDP
+              hostPort: 2055
+            - name: ipfix
+              containerPort: 4739
+              protocol: UDP
+              hostPort: 4739
+
+            # Metrics (HTTP)
+            - name: metrics
+              containerPort: 9090
+              protocol: TCP
+
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: 1000m
+              memory: 1Gi
+
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 9090
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 9090
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+
+          securityContext:
+            # Need NET_BIND_SERVICE for binding to ports <1024
+            capabilities:
+              add:
+                - NET_BIND_SERVICE
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+            runAsNonRoot: false  # Need root for host network
+            runAsUser: 0
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: flow-telemetry-collector
+  namespace: cloudbridge-monitoring
+  labels:
+    app: flow-telemetry
+    component: collector
+spec:
+  type: ClusterIP
+  clusterIP: None  # Headless service for DaemonSet
+  selector:
+    app: flow-telemetry
+    component: collector
+  ports:
+    - name: metrics
+      port: 9090
+      targetPort: 9090
+      protocol: TCP
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: flow-telemetry
+  namespace: cloudbridge-monitoring
+  labels:
+    app: flow-telemetry
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: flow-telemetry
+  namespace: cloudbridge-monitoring
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: flow-telemetry
+  namespace: cloudbridge-monitoring
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: flow-telemetry
+subjects:
+  - kind: ServiceAccount
+    name: flow-telemetry
+    namespace: cloudbridge-monitoring
+
+---
+# Prometheus ServiceMonitor для сбора метрик
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: flow-telemetry-collector
+  namespace: cloudbridge-monitoring
+  labels:
+    app: flow-telemetry
+    prometheus: cloudbridge
+spec:
+  selector:
+    matchLabels:
+      app: flow-telemetry
+      component: collector
+  endpoints:
+    - port: metrics
+      interval: 30s
+      path: /metrics
+      relabelings:
+        - sourceLabels: [__meta_kubernetes_pod_node_name]
+          targetLabel: node
+        - sourceLabels: [__meta_kubernetes_pod_name]
+          targetLabel: pod
+
+---
+# PodMonitor как альтернатива (если нет Service)
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: flow-telemetry-collector
+  namespace: cloudbridge-monitoring
+  labels:
+    app: flow-telemetry
+spec:
+  selector:
+    matchLabels:
+      app: flow-telemetry
+      component: collector
+  podMetricsEndpoints:
+    - port: metrics
+      interval: 30s
+      path: /metrics
+
+---
+# HPA для centralized aggregator (если нужен)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: flow-telemetry-aggregator
+  namespace: cloudbridge-monitoring
+  labels:
+    app: flow-telemetry
+    component: aggregator
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: flow-telemetry
+      component: aggregator
+  template:
+    metadata:
+      labels:
+        app: flow-telemetry
+        component: aggregator
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+    spec:
+      serviceAccountName: flow-telemetry
+
+      containers:
+        - name: aggregator
+          image: cloudbridge/flow-telemetry-aggregator:latest
+          imagePullPolicy: IfNotPresent
+
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+            - name: metrics
+              containerPort: 9090
+              protocol: TCP
+
+          resources:
+            requests:
+              cpu: 500m
+              memory: 512Mi
+            limits:
+              cpu: 2000m
+              memory: 2Gi
+
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 10
+
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 5
+
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: flow-telemetry-aggregator
+  namespace: cloudbridge-monitoring
+  labels:
+    app: flow-telemetry
+    component: aggregator
+spec:
+  type: ClusterIP
+  selector:
+    app: flow-telemetry
+    component: aggregator
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+    - name: metrics
+      port: 9090
+      targetPort: 9090
+
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: flow-telemetry-aggregator-hpa
+  namespace: cloudbridge-monitoring
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: flow-telemetry-aggregator
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: flow-telemetry-aggregator-pdb
+  namespace: cloudbridge-monitoring
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: flow-telemetry
+      component: aggregator
