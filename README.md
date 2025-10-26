@@ -1,8 +1,25 @@
-# CloudBridge Monitoring and Metrics
+# 🛡️ CloudBridge Guard-Rails
 
-Система мониторинга и метрик для CloudBridge Relay с SLO мониторингом, алертингом и визуализацией.
+**Анти-FP система самокоррекции и доверенной аналитики** для 2GC CloudBridge Global Network.
+
+> **CloudBridge Guard-Rails** — перила, которые не дают упасть, обеспечивая защиту от ложных срабатываний, автоматическую коррекцию политик и доверенную аналитику для всех компонентов экосистемы.
 
 ## Назначение
+
+**CloudBridge Guard-Rails** — это компонент **Security Layer** экосистемы 2GC CloudBridge Global Network, обеспечивающий:
+
+## 🌐 Экосистема CloudBridge
+
+**CloudBridge Guard-Rails** является частью **2GC CloudBridge Global Network**:
+
+- **Core Platform Layer**: CloudBridge Relay, CloudBridge DNS, CloudBridge PoP Fabric
+- **Security Layer**: CloudBridge Aegis, CloudBridge Access, **CloudBridge Guard-Rails** 🛡️
+- **Intelligence Layer**: CloudBridge Neural, CloudBridge Radar
+- **R&D Layer**: CloudBridge Quantum
+
+[Подробнее об экосистеме](https://github.com/twogc/cloudbridge-relay-installer/blob/main/docs/ECOSYSTEM_BRANDING.md)
+
+## Функциональность
 
 Этот репозиторий содержит production-ready систему мониторинга для CloudBridge Relay:
 
