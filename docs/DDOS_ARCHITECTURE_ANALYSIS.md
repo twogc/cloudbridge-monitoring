@@ -1,10 +1,10 @@
-# 🛡️ CloudBridge DDoS Protection Architecture Analysis
+# CloudBridge DDoS Protection Architecture Analysis
 
-## 📊 Обзор системы DDoS защиты
+## Обзор системы DDoS защиты
 
 CloudBridge реализует многоуровневую систему защиты от DDoS атак, включающую:
 
-### 🎯 Основные компоненты защиты
+### Основные компоненты защиты
 
 1. **Cloudflare WAF** - Первый уровень защиты
 2. **Edge PoPs** - Распределенная защита на границе
@@ -14,78 +14,78 @@ CloudBridge реализует многоуровневую систему за�
 
 ---
 
-## 🏗️ Архитектура DDoS защиты
+## Архитектура DDoS защиты
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                    DDoS ATTACK SOURCES                         │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐            │
-│  │   Botnets   │  │   Amplified │  │  Application│            │
-│  │   (Volumetric)│  │   Attacks   │  │   Layer     │            │
-│  └─────────────┘  └─────────────┘  └─────────────┘            │
+│ DDoS ATTACK SOURCES │
+│ ┌─────────────┐ ┌─────────────┐ ┌─────────────┐ │
+│ │ Botnets │ │ Amplified │ │ Application│ │
+│ │ (Volumetric)│ │ Attacks │ │ Layer │ │
+│ └─────────────┘ └─────────────┘ └─────────────┘ │
 └─────────────────────┬───────────────────────────────────────────┘
                       │
 ┌─────────────────────▼───────────────────────────────────────────┐
-│                CLOUDFLARE WAF (Layer 1)                        │
-│  ┌─────────────────────────────────────────────────────────┐   │
-│  │ • Rate Limiting (100 req/min global)                   │   │
-│  │ • Bot Fight Mode                                       │   │
-│  │ • Security Level: High                                 │   │
-│  │ • Browser Integrity Check                             │   │
-│  │ • Challenge Passage (30 min)                          │   │
-│  │ • Threat Score > 14 → Block                          │   │
-│  └─────────────────────────────────────────────────────────┘   │
+│ CLOUDFLARE WAF (Layer 1) │
+│ ┌─────────────────────────────────────────────────────────┐ │
+│ │ • Rate Limiting (100 req/min global) │ │
+│ │ • Bot Fight Mode │ │
+│ │ • Security Level: High │ │
+│ │ • Browser Integrity Check │ │
+│ │ • Challenge Passage (30 min) │ │
+│ │ • Threat Score > 14 → Block │ │
+│ └─────────────────────────────────────────────────────────┘ │
 └─────────────────────┬───────────────────────────────────────────┘
                       │
 ┌─────────────────────▼───────────────────────────────────────────┐
-│                EDGE PoPs (Layer 2)                             │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐            │
-│  │   Moscow    │  │  Frankfurt  │  │ Amsterdam   │            │
-│  │   (MOW)     │  │    (FRA)    │  │    (AMS)    │            │
-│  │             │  │             │  │             │            │
-│  │ • Anycast   │  │ • Anycast   │  │ • Anycast   │            │
-│  │ • 100 Gbps  │  │ • 100 Gbps  │  │ • 100 Gbps  │            │
-│  │ • QUIC/TLS  │  │ • QUIC/TLS  │  │ • QUIC/TLS  │            │
-│  └─────────────┘  └─────────────┘  └─────────────┘            │
+│ EDGE PoPs (Layer 2) │
+│ ┌─────────────┐ ┌─────────────┐ ┌─────────────┐ │
+│ │ Moscow │ │ Frankfurt │ │ Amsterdam │ │
+│ │ (MOW) │ │ (FRA) │ │ (AMS) │ │
+│ │ │ │ │ │ │ │
+│ │ • Anycast │ │ • Anycast │ │ • Anycast │ │
+│ │ • 100 Gbps │ │ • 100 Gbps │ │ • 100 Gbps │ │
+│ │ • QUIC/TLS │ │ • QUIC/TLS │ │ • QUIC/TLS │ │
+│ └─────────────┘ └─────────────┘ └─────────────┘ │
 └─────────────────────┬───────────────────────────────────────────┘
                       │
 ┌─────────────────────▼───────────────────────────────────────────┐
-│              MONITORING & DETECTION (Layer 3)                  │
-│  ┌─────────────────────────────────────────────────────────┐   │
-│  │ • Prometheus Metrics Collection                        │   │
-│  │ • Real-time Traffic Analysis                           │   │
-│  │ • AI/ML Anomaly Detection                              │   │
-│  │ • < 30s Detection Time                                 │   │
-│  │ • Multi-tenant Isolation                               │   │
-│  └─────────────────────────────────────────────────────────┘   │
+│ MONITORING & DETECTION (Layer 3) │
+│ ┌─────────────────────────────────────────────────────────┐ │
+│ │ • Prometheus Metrics Collection │ │
+│ │ • Real-time Traffic Analysis │ │
+│ │ • AI/ML Anomaly Detection │ │
+│ │ • < 30s Detection Time │ │
+│ │ • Multi-tenant Isolation │ │
+│ └─────────────────────────────────────────────────────────┘ │
 └─────────────────────┬───────────────────────────────────────────┘
                       │
 ┌─────────────────────▼───────────────────────────────────────────┐
-│              AUTOMATED MITIGATION (Layer 4)                   │
-│  ┌─────────────────────────────────────────────────────────┐   │
-│  │ • BGP Blackhole Injection (GoBGP v4)                  │   │
-│  │ • RFC 7999 Blackhole Community (65535:666)            │   │
-│  │ • < 60s Mitigation Time                                │   │
-│  │ • Automatic Route Withdrawal                            │   │
-│  │ • Upstream Scrubbing Integration                       │   │
-│  └─────────────────────────────────────────────────────────┘   │
+│ AUTOMATED MITIGATION (Layer 4) │
+│ ┌─────────────────────────────────────────────────────────┐ │
+│ │ • BGP Blackhole Injection (GoBGP v4) │ │
+│ │ • RFC 7999 Blackhole Community (65535:666) │ │
+│ │ • < 60s Mitigation Time │ │
+│ │ • Automatic Route Withdrawal │ │
+│ │ • Upstream Scrubbing Integration │ │
+│ └─────────────────────────────────────────────────────────┘ │
 └─────────────────────┬───────────────────────────────────────────┘
                       │
 ┌─────────────────────▼───────────────────────────────────────────┐
-│              UPSTREAM SCRUBBING (Layer 5)                     │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐            │
-│  │ Yandex Cloud│  │ Qrator Labs │  │     RTK     │            │
-│  │             │  │             │  │             │            │
-│  │ • BGP Peering│  │ • BGP Peering│  │ • Manual    │            │
-│  │ • 30-60 Gbps │  │ • 30-60 Gbps │  │ • Coordination│          │
-│  │ • Terraform  │  │ • API        │  │ • Contract   │            │
-│  └─────────────┘  └─────────────┘  └─────────────┘            │
+│ UPSTREAM SCRUBBING (Layer 5) │
+│ ┌─────────────┐ ┌─────────────┐ ┌─────────────┐ │
+│ │ Yandex Cloud│ │ Qrator Labs │ │ RTK │ │
+│ │ │ │ │ │ │ │
+│ │ • BGP Peering│ │ • BGP Peering│ │ • Manual │ │
+│ │ • 30-60 Gbps │ │ • 30-60 Gbps │ │ • Coordination│ │
+│ │ • Terraform │ │ • API │ │ • Contract │ │
+│ └─────────────┘ └─────────────┘ └─────────────┘ │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 🔧 Технические компоненты
+## Технические компоненты
 
 ### 1. Cloudflare WAF Rules
 
@@ -185,7 +185,7 @@ CloudBridge реализует многоуровневую систему за�
 
 ---
 
-## 📊 Производительность и метрики
+## Производительность и метрики
 
 ### Технические характеристики
 
@@ -203,7 +203,7 @@ CloudBridge реализует многоуровневую систему за�
 **Dashboard Panels (12 total):**
 
 1. **DDoS Attacks Detected (24h)** - Stat panel
-2. **Active BGP Blackholes** - Stat panel  
+2. **Active BGP Blackholes** - Stat panel
 3. **Upstream Scrubbing Status** - Stat panel
 4. **Mitigation Effectiveness** - Ratio calculation
 5. **DDoS Attack Rate (5m)** - Time series by attack type
@@ -217,7 +217,7 @@ CloudBridge реализует многоуровневую систему за�
 
 ---
 
-## 🚀 Развертывание и управление
+## Развертывание и управление
 
 ### Deployment Script
 
@@ -244,7 +244,7 @@ kubectl exec -n cloudbridge-scrubbing deployment/scrubbing-exporter -- curl -s h
 
 **NetworkPolicies (6 total):**
 1. `allow-prometheus-scrape-scrubbing` - Prometheus → scrubbing-exporter
-2. `allow-prometheus-scrape-blackhole` - Prometheus → bgp-blackhole-exporter  
+2. `allow-prometheus-scrape-blackhole` - Prometheus → bgp-blackhole-exporter
 3. `allow-alertmanager-webhook-blackhole` - Alertmanager → bgp-blackhole-exporter
 4. `allow-alertmanager-webhook-scrubbing` - Alertmanager → scrubbing-exporter
 5. `allow-gobgp-access` - bgp-blackhole-exporter → GoBGP (port 50051)
@@ -252,7 +252,7 @@ kubectl exec -n cloudbridge-scrubbing deployment/scrubbing-exporter -- curl -s h
 
 ---
 
-## 🔒 Безопасность и изоляция
+## Безопасность и изоляция
 
 ### Multi-tenancy Support
 
@@ -270,34 +270,34 @@ kubectl exec -n cloudbridge-scrubbing deployment/scrubbing-exporter -- curl -s h
 
 ---
 
-## 🎯 Бизнес-преимущества
+## Бизнес-преимущества
 
 ### Enterprise-grade Protection
 
-- ✅ **Уровень Cloudflare Magic Transit** - Enterprise-grade DDoS protection
-- ✅ **Compliance с российскими требованиями** - Yandex Cloud, Qrator, RTK
-- ✅ **Cost Efficiency** - Автоматизация через AI/ML
-- ✅ **Competitive Advantage** - Превосходство в области безопасности
+- **Уровень Cloudflare Magic Transit** - Enterprise-grade DDoS protection
+- **Compliance с российскими требованиями** - Yandex Cloud, Qrator, RTK
+- **Cost Efficiency** - Автоматизация через AI/ML
+- **Competitive Advantage** - Превосходство в области безопасности
 
 ### Технические преимущества
 
-- ✅ **Автоматическая DDoS detection** через Prometheus alerts
-- ✅ **BGP blackhole injection** через GoBGP v4 API  
-- ✅ **Upstream scrubbing integration** (BGP peering)
-- ✅ **Real-time monitoring** в Grafana
-- ✅ **Multi-tenancy поддержка**
-- ✅ **Automatic blackhole withdrawal**
-- ✅ **Comprehensive alerting**
+- **Автоматическая DDoS detection** через Prometheus alerts
+- **BGP blackhole injection** через GoBGP v4 API
+- **Upstream scrubbing integration** (BGP peering)
+- **Real-time monitoring** в Grafana
+- **Multi-tenancy поддержка**
+- **Automatic blackhole withdrawal**
+- **Comprehensive alerting**
 
 ---
 
-## 📚 Документация и ресурсы
+## Документация и ресурсы
 
 ### Для пользователей
 1. **Quick Start**: `docs/DDOS_QUICKSTART.md` - Развертывание за 5 минут
 2. **Full Guide**: `docs/DDOS_PROTECTION_GUIDE.md` - Полное руководство
 
-### Для разработчиков  
+### Для разработчиков
 1. **Scrubbing Exporter**: `exporters/scrubbing-exporter/README.md`
 2. **BGP Blackhole Controller**: `exporters/bgp-blackhole-exporter/README.md`
 3. **Architecture**: `docs/DDOS_PROTECTION_GUIDE.md` (Architecture section)
@@ -309,16 +309,16 @@ kubectl exec -n cloudbridge-scrubbing deployment/scrubbing-exporter -- curl -s h
 
 ---
 
-## ✅ Готовность к Production
+## Готовность к Production
 
 ### Что готово
-- ✅ Весь код написан и протестирован
-- ✅ Kubernetes manifests валидны  
-- ✅ NetworkPolicies настроены для security
-- ✅ Prometheus rules корректны
-- ✅ Grafana dashboard создан
-- ✅ Deployment script готов
-- ✅ Документация полная
+- Весь код написан и протестирован
+- Kubernetes manifests валидны
+- NetworkPolicies настроены для security
+- Prometheus rules корректны
+- Grafana dashboard создан
+- Deployment script готов
+- Документация полная
 
 ### Следующие шаги
 1. **Build Docker images** и загрузка в registry
@@ -329,6 +329,6 @@ kubectl exec -n cloudbridge-scrubbing deployment/scrubbing-exporter -- curl -s h
 
 ---
 
-**Статус**: ✅ ГОТОВО К PRODUCTION DEPLOYMENT  
-**Версия**: 1.0  
+**Статус**: ГОТОВО К PRODUCTION DEPLOYMENT
+**Версия**: 1.0
 **Дата**: 2025-01-09

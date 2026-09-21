@@ -1,4 +1,4 @@
-# 🛡️ CloudBridge Guard-Rails
+# CloudBridge Guard-Rails
 
 **Анти-FP система самокоррекции и доверенной аналитики** для 2GC CloudBridge Global Network.
 
@@ -8,12 +8,12 @@
 
 **CloudBridge Guard-Rails** — это компонент **Security Layer** экосистемы 2GC CloudBridge Global Network, обеспечивающий:
 
-## 🌐 Экосистема CloudBridge
+## Экосистема CloudBridge
 
 **CloudBridge Guard-Rails** является частью **2GC CloudBridge Global Network**:
 
 - **Core Platform Layer**: CloudBridge Relay, CloudBridge DNS, CloudBridge PoP Fabric
-- **Security Layer**: CloudBridge Aegis, CloudBridge Access, **CloudBridge Guard-Rails** 🛡️
+- **Security Layer**: CloudBridge Aegis, CloudBridge Access, **CloudBridge Guard-Rails**
 - **Intelligence Layer**: CloudBridge Neural, CloudBridge Radar
 - **R&D Layer**: CloudBridge Quantum
 
@@ -44,7 +44,7 @@ graph TB
         G[Grafana<br/>grafana.2gc.ru<br/>Dashboards<br/>Visualization]
         A[Alertmanager<br/>alerts.2gc.ru<br/>Alert Management<br/>Notifications]
     end
-    
+
     subgraph "Data Sources"
         R1[Moscow PoP<br/>Metrics Export]
         R2[Frankfurt PoP<br/>Metrics Export]
@@ -52,32 +52,32 @@ graph TB
         CP[Control Plane<br/>Metrics Export]
         AI[AI Service<br/>Metrics Export]
     end
-    
+
     subgraph "SLO Targets"
         S1[RTT p95<br/>< 50ms]
         S2[Handover p95<br/>< 300ms]
         S3[P2P Percentage<br/>≥ 60%]
         S4[Error Budget<br/>< 5%]
     end
-    
+
     R1 --> P
     R2 --> P
     R3 --> P
     CP --> P
     AI --> P
-    
+
     P --> G
     P --> A
-    
+
     G --> S1
     G --> S2
     G --> S3
     G --> S4
-    
+
     classDef monitoring fill:#e3f2fd,stroke:#1976d2,stroke-width:2px
     classDef datasource fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
     classDef slo fill:#e8f5e8,stroke:#388e3c,stroke-width:2px
-    
+
     class P,G,A monitoring
     class R1,R2,R3,CP,AI datasource
     class S1,S2,S3,S4 slo
@@ -100,7 +100,7 @@ graph TB
 - **Функции**: Alert routing, notification channels
 - **Конфигурация**: `alertmanager/`
 
-### **DDoS Protection** ⭐ NEW
+### **DDoS Protection** NEW
 - **Назначение**: Автоматическая защита от DDoS атак
 - **Функции**:
   - BGP blackhole injection через GoBGP v4
@@ -145,7 +145,7 @@ kubectl apply -f security/
 
 # 10. Проверка готовности
 kubectl get pods -n cloudbridge-monitoring
-kubectl get pods -n cloudbridge-scrubbing  # DDoS protection
+kubectl get pods -n cloudbridge-scrubbing # DDoS protection
 ```
 
 ### **Установка QUIC Probe**
@@ -287,7 +287,7 @@ groups:
     annotations:
       summary: "High RTT detected"
       description: "RTT p95 is {{ $value }}s, threshold is 0.05s"
-  
+
   - alert: SlowHandover
     expr: histogram_quantile(0.95, relay_handover_duration_seconds) > 0.3
     for: 2m
@@ -296,7 +296,7 @@ groups:
     annotations:
       summary: "Slow handover detected"
       description: "Handover p95 is {{ $value }}s, threshold is 0.3s"
-  
+
   - alert: LowP2PPercentage
     expr: relay_p2p_percentage < 60
     for: 10m
@@ -357,7 +357,7 @@ receivers:
 - name: 'web.hook'
   webhook_configs:
   - url: 'http://webhook:5001/'
-  
+
 - name: 'email'
   email_configs:
   - to: 'admin@2gc.ru'
@@ -384,7 +384,7 @@ groups:
     annotations:
       summary: "Relay server is down"
       description: "Relay server {{ $labels.instance }} is down"
-  
+
   - alert: HighErrorRate
     expr: rate(relay_errors_total[5m]) > 0.01
     for: 5m
@@ -407,13 +407,13 @@ slos:
     window: "30d"
     metric: "histogram_quantile(0.95, relay_rtt_seconds)"
     threshold: 0.05
-  
+
   - name: "Handover SLO"
     target: 0.99
     window: "7d"
     metric: "histogram_quantile(0.95, relay_handover_duration_seconds)"
     threshold: 0.3
-  
+
   - name: "P2P SLO"
     target: 0.90
     window: "30d"
@@ -426,10 +426,10 @@ slos:
 ```yaml
 # slo/error-budget.yaml
 error_budget:
-  total_budget: 0.05  # 5% error budget
-  consumed_budget: 0.02  # 2% consumed
-  remaining_budget: 0.03  # 3% remaining
-  burn_rate: 0.001  # 0.1% per hour
+  total_budget: 0.05 # 5% error budget
+  consumed_budget: 0.02 # 2% consumed
+  remaining_budget: 0.03 # 3% remaining
+  burn_rate: 0.001 # 0.1% per hour
 ```
 
 ## Тестирование

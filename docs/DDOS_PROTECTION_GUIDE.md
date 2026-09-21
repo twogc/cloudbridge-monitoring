@@ -15,45 +15,45 @@ CloudBridge DDoS Protection provides enterprise-grade DDoS mitigation through:
 
 ```
 ┌─────────────────┐
-│   DDoS Attack   │
+│ DDoS Attack │
 └────────┬────────┘
          │
          ▼
 ┌─────────────────────────────────────────────────────┐
-│             CloudBridge Edge PoPs                   │
-│  ┌──────────────────┐      ┌──────────────────┐   │
-│  │ Traffic Analysis │─────▶│ Prometheus       │   │
-│  │ (Relay Metrics)  │      │ (DDoS Detection) │   │
-│  └──────────────────┘      └─────────┬────────┘   │
+│ CloudBridge Edge PoPs │
+│ ┌──────────────────┐ ┌──────────────────┐ │
+│ │ Traffic Analysis │─────▶│ Prometheus │ │
+│ │ (Relay Metrics) │ │ (DDoS Detection) │ │
+│ └──────────────────┘ └─────────┬────────┘ │
 └────────────────────────────────────────┼───────────┘
                                          │
                    ┌─────────────────────┼─────────────────────┐
-                   │                     ▼                     │
-                   │           ┌──────────────────┐            │
-                   │           │  Alertmanager    │            │
-                   │           │  (Alert Firing)  │            │
-                   │           └─────────┬────────┘            │
-                   │                     │                     │
+                   │ ▼ │
+                   │ ┌──────────────────┐ │
+                   │ │ Alertmanager │ │
+                   │ │ (Alert Firing) │ │
+                   │ └─────────┬────────┘ │
+                   │ │ │
          ┌─────────┼─────────────────────┼─────────┬───────────┼──────────┐
-         │         │                     │         │           │          │
-         ▼         ▼                     ▼         ▼           ▼          ▼
-┌────────────────────┐         ┌──────────────────────┐  ┌─────────────────┐
-│ Scrubbing Exporter │         │ BGP Blackhole        │  │ Grafana         │
-│ (Metrics)          │         │ Controller           │  │ (Visualization) │
-└────────────────────┘         └──────────┬───────────┘  └─────────────────┘
+         │ │ │ │ │ │
+         ▼ ▼ ▼ ▼ ▼ ▼
+┌────────────────────┐ ┌──────────────────────┐ ┌─────────────────┐
+│ Scrubbing Exporter │ │ BGP Blackhole │ │ Grafana │
+│ (Metrics) │ │ Controller │ │ (Visualization) │
+└────────────────────┘ └──────────┬───────────┘ └─────────────────┘
                                           │
                                           ▼
                                ┌──────────────────┐
-                               │  GoBGP v4 API    │
-                               │  (BGP Routes)    │
+                               │ GoBGP v4 API │
+                               │ (BGP Routes) │
                                └─────────┬────────┘
                                          │
                                          ▼
                                ┌──────────────────┐
-                               │ BGP Network      │
-                               │ (Blackhole/      │
-                               │  Upstream        │
-                               │  Scrubbing)      │
+                               │ BGP Network │
+                               │ (Blackhole/ │
+                               │ Upstream │
+                               │ Scrubbing) │
                                └──────────────────┘
 ```
 
@@ -120,11 +120,11 @@ Internet
 
 | Component | In K8s (typical) | On Edge (host) | Notes |
 |-----------|------------------|----------------|-------|
-| **XDP/eBPF** | ✖ Not available | ✔ 10M+ pps | Must be on edge before cluster |
-| **nftables flowtable** | △ (hostNetwork) | ✔ 1M+ pps | More efficient outside cluster |
-| **L7 QUIC/HTTP3 proxy** | △ (ingress) | ✔ 300k-500k+ RPS/node | In K8s only if traffic is "cleaned" |
-| **BGP/RTBH** | ✖ Not available | ✔ Native support | Network/router functions |
-| **Rate-limit per tenant** | ✔ Suitable | ✔ Suitable | In K8s - business quotas and SLO |
+| **XDP/eBPF** | Not available | 10M+ pps | Must be on edge before cluster |
+| **nftables flowtable** | △ (hostNetwork) | 1M+ pps | More efficient outside cluster |
+| **L7 QUIC/HTTP3 proxy** | △ (ingress) | 300k-500k+ RPS/node | In K8s only if traffic is "cleaned" |
+| **BGP/RTBH** | Not available | Native support | Network/router functions |
+| **Rate-limit per tenant** | Suitable | Suitable | In K8s - business quotas and SLO |
 | **Service Mesh** | △ Possible | — Not needed | Often disabled in DDoS scenarios |
 
 > △ — Possible but with caveats (hostNetwork, eBPF-kube-proxy, irq-pinning, etc.)
@@ -232,8 +232,8 @@ kubectl create configmap grafana-dashboard-scrubbing \
 
 ```nginx
 # DDOS MODE toggle (enable during attacks)
-quic_retry on;           # Enable QUIC Retry in DDOS MODE
-# quic_0rtt off;        # Disable 0-RTT in DDOS MODE
+quic_retry on; # Enable QUIC Retry in DDOS MODE
+# quic_0rtt off; # Disable 0-RTT in DDOS MODE
 
 # Rate limiting for 800k RPS
 limit_req_zone $binary_remote_addr zone=api:50m rate=200r/s;
@@ -242,14 +242,14 @@ limit_req_zone $jwt_tenant zone=tenant:50m rate=2000r/s;
 server {
     listen 443 quic reuseport;
     limit_req zone=api burst=100 nodelay;
-    
+
     # L7 protection limits
     client_max_body_size 1m;
     client_header_buffer_size 4k;
     large_client_header_buffers 4 8k;
     client_body_timeout 10s;
     client_header_timeout 10s;
-    keepalive_timeout 30s;  # Aggressive in DDOS MODE
+    keepalive_timeout 30s; # Aggressive in DDOS MODE
 }
 ```
 
@@ -257,8 +257,8 @@ server {
 
 ```yaml
 http3_protocol_options:
-  max_header_list_size: 32768        # ~32 KB
-  disable_0rtt: true                 # Enable in DDOS MODE
+  max_header_list_size: 32768 # ~32 KB
+  disable_0rtt: true # Enable in DDOS MODE
 common_http_protocol_options:
   max_headers_count: 100
   max_stream_duration: 5s
@@ -279,15 +279,15 @@ table inet ddos {
     set badsrc { type ipv4_addr; timeout 5m; }
     set bad24 { type ipv4_addr; timeout 5m; }
     chain preraw {
-        type filter hook prerouting priority -300;  # before conntrack
+        type filter hook prerouting priority -300; # before conntrack
         udp dport 443 notrack
     }
     chain ingress {
-        type filter hook ingress device eth0 priority -500;  # fast path
+        type filter hook ingress device eth0 priority -500; # fast path
         ip saddr @badsrc drop
         udp dport 443 meter quic { ip saddr limit rate over 2000/second } add @badsrc { ip saddr } drop
         tcp flags syn meter syn { ip saddr limit rate over 200/second } add @badsrc { ip saddr } drop
-        ip saddr @badsrc add @bad24 { ip saddr & 255.255.255.0 }  # escalate to /24
+        ip saddr @badsrc add @bad24 { ip saddr & 255.255.255.0 } # escalate to /24
     }
 }
 ```
@@ -770,16 +770,16 @@ Escalation: /32 → /24 (only for confirmed attacks), rollback via BFD/timer
 ### Edge PoP (Bare Metal/VMs)
 ```
 ┌─────────────────────────────────────────────────────────┐
-│                CloudBridge Edge PoP                    │
-│                                                         │
-│  ┌─────────────────┐    ┌─────────────────────────────┐ │
-│  │   Bare Metal    │    │     Kubernetes Cluster     │ │
-│  │                 │    │                            │ │
-│  │ • XDP/eBPF      │────│ • Application Services     │ │
-│  │ • nftables      │    │ • Rate Limiting            │ │
-│  │ • Nginx-QUIC    │    │ • Circuit Breakers         │ │
-│  │ • BGP           │    │ • Monitoring                │ │
-│  └─────────────────┘    └─────────────────────────────┘ │
+│ CloudBridge Edge PoP │
+│ │
+│ ┌─────────────────┐ ┌─────────────────────────────┐ │
+│ │ Bare Metal │ │ Kubernetes Cluster │ │
+│ │ │ │ │ │
+│ │ • XDP/eBPF │────│ • Application Services │ │
+│ │ • nftables │ │ • Rate Limiting │ │
+│ │ • Nginx-QUIC │ │ • Circuit Breakers │ │
+│ │ • BGP │ │ • Monitoring │ │
+│ └─────────────────┘ └─────────────────────────────┘ │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -799,9 +799,9 @@ Escalation: /32 → /24 (only for confirmed attacks), rollback via BFD/timer
 ### Traffic Flow
 ```
 Internet → Edge PoP (Bare Metal) → K8s Cluster (Apps)
-         ↑                        ↑
-    DDoS Protection          Business Logic
-    (XDP/nftables)          (Rate limiting)
+         ↑ ↑
+    DDoS Protection Business Logic
+    (XDP/nftables) (Rate limiting)
 ```
 
 ## Support

@@ -1,10 +1,10 @@
-# 🛡️ CloudBridge DDoS Protection - Architecture Without Cloudflare
+# CloudBridge DDoS Protection - Architecture Without Cloudflare
 
-## 📊 Обзор системы DDoS защиты (без Cloudflare)
+## Обзор системы DDoS защиты (без Cloudflare)
 
 CloudBridge реализует **собственную многоуровневую систему защиты** от DDoS атак без использования Cloudflare:
 
-### 🎯 Основные компоненты защиты
+### Основные компоненты защиты
 
 1. **Edge PoPs** - Распределенная защита на границе сети
 2. **BGP Blackhole Injection** - Автоматическая блокировка атак через BGP
@@ -14,70 +14,70 @@ CloudBridge реализует **собственную многоуровнев
 
 ---
 
-## 🏗️ Архитектура DDoS защиты (без Cloudflare)
+## Архитектура DDoS защиты (без Cloudflare)
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                    DDoS ATTACK SOURCES                         │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐            │
-│  │   Botnets   │  │   Amplified │  │  Application│            │
-│  │   (Volumetric)│  │   Attacks   │  │   Layer     │            │
-│  └─────────────┘  └─────────────┘  └─────────────┘            │
+│ DDoS ATTACK SOURCES │
+│ ┌─────────────┐ ┌─────────────┐ ┌─────────────┐ │
+│ │ Botnets │ │ Amplified │ │ Application│ │
+│ │ (Volumetric)│ │ Attacks │ │ Layer │ │
+│ └─────────────┘ └─────────────┘ └─────────────┘ │
 └─────────────────────┬───────────────────────────────────────────┘
                       │
 ┌─────────────────────▼───────────────────────────────────────────┐
-│                EDGE PoPs (Layer 1)                              │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐            │
-│  │   Moscow    │  │  Frankfurt  │  │ Amsterdam   │            │
-│  │   (MOW)     │  │    (FRA)    │  │    (AMS)    │            │
-│  │             │  │             │  │             │            │
-│  │ • Anycast   │  │ • Anycast   │  │ • Anycast   │            │
-│  │ • 100 Gbps  │  │ • 100 Gbps  │  │ • 100 Gbps  │            │
-│  │ • QUIC/TLS  │  │ • QUIC/TLS  │  │ • QUIC/TLS  │            │
-│  │ • Rate Limit│  │ • Rate Limit│  │ • Rate Limit│            │
-│  │ • Geo Block │  │ • Geo Block │  │ • Geo Block │            │
-│  └─────────────┘  └─────────────┘  └─────────────┘            │
+│ EDGE PoPs (Layer 1) │
+│ ┌─────────────┐ ┌─────────────┐ ┌─────────────┐ │
+│ │ Moscow │ │ Frankfurt │ │ Amsterdam │ │
+│ │ (MOW) │ │ (FRA) │ │ (AMS) │ │
+│ │ │ │ │ │ │ │
+│ │ • Anycast │ │ • Anycast │ │ • Anycast │ │
+│ │ • 100 Gbps │ │ • 100 Gbps │ │ • 100 Gbps │ │
+│ │ • QUIC/TLS │ │ • QUIC/TLS │ │ • QUIC/TLS │ │
+│ │ • Rate Limit│ │ • Rate Limit│ │ • Rate Limit│ │
+│ │ • Geo Block │ │ • Geo Block │ │ • Geo Block │ │
+│ └─────────────┘ └─────────────┘ └─────────────┘ │
 └─────────────────────┬───────────────────────────────────────────┘
                       │
 ┌─────────────────────▼───────────────────────────────────────────┐
-│              MONITORING & DETECTION (Layer 2)                  │
-│  ┌─────────────────────────────────────────────────────────┐   │
-│  │ • Prometheus Metrics Collection                        │   │
-│  │ • Real-time Traffic Analysis                           │   │
-│  │ • AI/ML Anomaly Detection                              │   │
-│  │ • < 30s Detection Time                                 │   │
-│  │ • Multi-tenant Isolation                               │   │
-│  │ • Custom WAF Rules                                     │   │
-│  └─────────────────────────────────────────────────────────┘   │
+│ MONITORING & DETECTION (Layer 2) │
+│ ┌─────────────────────────────────────────────────────────┐ │
+│ │ • Prometheus Metrics Collection │ │
+│ │ • Real-time Traffic Analysis │ │
+│ │ • AI/ML Anomaly Detection │ │
+│ │ • < 30s Detection Time │ │
+│ │ • Multi-tenant Isolation │ │
+│ │ • Custom WAF Rules │ │
+│ └─────────────────────────────────────────────────────────┘ │
 └─────────────────────┬───────────────────────────────────────────┘
                       │
 ┌─────────────────────▼───────────────────────────────────────────┐
-│              AUTOMATED MITIGATION (Layer 3)                   │
-│  ┌─────────────────────────────────────────────────────────┐   │
-│  │ • BGP Blackhole Injection (GoBGP v4)                  │   │
-│  │ • RFC 7999 Blackhole Community (65535:666)            │   │
-│  │ • < 60s Mitigation Time                                │   │
-│  │ • Automatic Route Withdrawal                            │   │
-│  │ • iptables/nftables Rules                              │   │
-│  │ • Application Layer Blocking                           │   │
-│  └─────────────────────────────────────────────────────────┘   │
+│ AUTOMATED MITIGATION (Layer 3) │
+│ ┌─────────────────────────────────────────────────────────┐ │
+│ │ • BGP Blackhole Injection (GoBGP v4) │ │
+│ │ • RFC 7999 Blackhole Community (65535:666) │ │
+│ │ • < 60s Mitigation Time │ │
+│ │ • Automatic Route Withdrawal │ │
+│ │ • iptables/nftables Rules │ │
+│ │ • Application Layer Blocking │ │
+│ └─────────────────────────────────────────────────────────┘ │
 └─────────────────────┬───────────────────────────────────────────┘
                       │
 ┌─────────────────────▼───────────────────────────────────────────┐
-│              UPSTREAM SCRUBBING (Layer 4)                      │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐            │
-│  │ Yandex Cloud│  │ Qrator Labs │  │     RTK     │            │
-│  │             │  │             │  │             │            │
-│  │ • BGP Peering│  │ • BGP Peering│  │ • Manual    │            │
-│  │ • 30-60 Gbps │  │ • 30-60 Gbps │  │ • Coordination│          │
-│  │ • Terraform  │  │ • API        │  │ • Contract   │            │
-│  └─────────────┘  └─────────────┘  └─────────────┘            │
+│ UPSTREAM SCRUBBING (Layer 4) │
+│ ┌─────────────┐ ┌─────────────┐ ┌─────────────┐ │
+│ │ Yandex Cloud│ │ Qrator Labs │ │ RTK │ │
+│ │ │ │ │ │ │ │
+│ │ • BGP Peering│ │ • BGP Peering│ │ • Manual │ │
+│ │ • 30-60 Gbps │ │ • 30-60 Gbps │ │ • Coordination│ │
+│ │ • Terraform │ │ • API │ │ • Contract │ │
+│ └─────────────┘ └─────────────┘ └─────────────┘ │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 🔧 Технические компоненты (без Cloudflare)
+## Технические компоненты (без Cloudflare)
 
 ### 1. Edge PoP Protection Rules
 
@@ -178,7 +178,7 @@ groups:
 
 ---
 
-## 🚀 Реализация без Cloudflare
+## Реализация без Cloudflare
 
 ### 1. Edge PoP Configuration
 
@@ -191,61 +191,61 @@ http {
     limit_req_zone $binary_remote_addr zone=api:10m rate=10r/s;
     limit_req_zone $binary_remote_addr zone=global:10m rate=100r/s;
     limit_req_zone $binary_remote_addr zone=auth:10m rate=1r/s;
-    
+
     # Connection limiting
     limit_conn_zone $binary_remote_addr zone=conn_limit_per_ip:10m;
     limit_conn_zone $server_name zone=conn_limit_per_server:10m;
-    
+
     # Geo blocking
     geo $blocked_country {
         default 0;
-        192.168.0.0/16 1;  # Local networks
+        192.168.0.0/16 1; # Local networks
         # Add blocked countries here
     }
-    
+
     server {
         listen 80;
         listen 443 ssl http2;
-        
+
         # Block suspicious countries
         if ($blocked_country) {
             return 403;
         }
-        
+
         # Rate limiting
         limit_req zone=global burst=20 nodelay;
         limit_conn conn_limit_per_ip 10;
         limit_conn conn_limit_per_server 1000;
-        
+
         # API endpoints protection
         location /api/ {
             limit_req zone=api burst=5 nodelay;
             limit_conn conn_limit_per_ip 5;
-            
+
             # Custom WAF rules
             if ($request_uri ~* "(union|select|insert|update|delete|drop|exec)") {
                 return 403;
             }
-            
+
             if ($request_uri ~* "(<script|javascript:|onerror=|onload=)") {
                 return 403;
             }
-            
+
             if ($request_uri ~* "(\.\./|\.\.\\|/etc/passwd|/proc/)") {
                 return 403;
             }
-            
+
             proxy_pass http://backend;
         }
-        
+
         # Auth endpoints protection
         location /api/auth/ {
             limit_req zone=auth burst=3 nodelay;
             limit_conn conn_limit_per_ip 3;
-            
+
             proxy_pass http://backend;
         }
-        
+
         # Static files protection
         location /static/ {
             limit_req zone=global burst=50 nodelay;
@@ -273,35 +273,35 @@ class DDoSProtectionMiddleware:
     def __init__(self, redis_client: redis.Redis):
         self.redis = redis_client
         self.rate_limits = {
-            'api': {'limit': 50, 'window': 60},  # 50 requests per minute
-            'auth': {'limit': 10, 'window': 60},  # 10 requests per minute
-            'admin': {'limit': 30, 'window': 60},  # 30 requests per minute
+            'api': {'limit': 50, 'window': 60}, # 50 requests per minute
+            'auth': {'limit': 10, 'window': 60}, # 10 requests per minute
+            'admin': {'limit': 30, 'window': 60}, # 30 requests per minute
         }
-    
+
     async def __call__(self, request: Request, call_next):
         client_ip = request.client.host
         path = request.url.path
-        
+
         # Determine rate limit based on path
         rate_limit = self.get_rate_limit(path)
-        
+
         # Check rate limit
         if not await self.check_rate_limit(client_ip, rate_limit):
             return JSONResponse(
                 status_code=429,
                 content={"error": "Rate limit exceeded", "retry_after": 60}
             )
-        
+
         # Check for suspicious patterns
         if await self.is_suspicious_request(request):
             return JSONResponse(
                 status_code=403,
                 content={"error": "Suspicious request blocked"}
             )
-        
+
         response = await call_next(request)
         return response
-    
+
     def get_rate_limit(self, path: str) -> dict:
         if path.startswith('/api/auth/'):
             return self.rate_limits['auth']
@@ -309,37 +309,37 @@ class DDoSProtectionMiddleware:
             return self.rate_limits['admin']
         else:
             return self.rate_limits['api']
-    
+
     async def check_rate_limit(self, client_ip: str, rate_limit: dict) -> bool:
         key = f"rate_limit:{client_ip}:{rate_limit['window']}"
         current = await self.redis.incr(key)
-        
+
         if current == 1:
             await self.redis.expire(key, rate_limit['window'])
-        
+
         return current <= rate_limit['limit']
-    
+
     async def is_suspicious_request(self, request: Request) -> bool:
         # Check for SQL injection patterns
         sql_patterns = ['union', 'select', 'insert', 'update', 'delete', 'drop', 'exec']
         query_string = str(request.query_params)
-        
+
         for pattern in sql_patterns:
             if pattern in query_string.lower():
                 return True
-        
+
         # Check for XSS patterns
         xss_patterns = ['<script', 'javascript:', 'onerror=', 'onload=', 'onclick=']
         for pattern in xss_patterns:
             if pattern in query_string.lower():
                 return True
-        
+
         # Check for path traversal
         path_patterns = ['../', '..\\', '/etc/passwd', '/proc/']
         for pattern in path_patterns:
             if pattern in query_string:
                 return True
-        
+
         return False
 ```
 
@@ -355,7 +355,7 @@ import (
     "context"
     "log"
     "time"
-    
+
     "github.com/osrg/gobgp/v4/api"
     "github.com/osrg/gobgp/v4/pkg/server"
 )
@@ -367,7 +367,7 @@ type BGPBlackholeController struct {
 func NewBGPBlackholeController() *BGPBlackholeController {
     s := server.NewBgpServer()
     go s.Serve()
-    
+
     return &BGPBlackholeController{
         server: s,
     }
@@ -377,7 +377,7 @@ func (b *BGPBlackholeController) InjectBlackhole(targetIP string, ttl int) error
     // Create blackhole route
     route := &api.Path{
         Family: &api.Family{
-            Afi:  api.Family_AFI_IP,
+            Afi: api.Family_AFI_IP,
             Safi: api.Family_SAFI_UNICAST,
         },
         Nlri: &api.Nlri{
@@ -392,40 +392,40 @@ func (b *BGPBlackholeController) InjectBlackhole(targetIP string, ttl int) error
             },
         },
     }
-    
+
     // Inject route
     _, err := b.server.AddPath(context.Background(), &api.AddPathRequest{
         Path: route,
     })
-    
+
     if err != nil {
         return err
     }
-    
+
     // Schedule automatic withdrawal
     go func() {
         time.Sleep(time.Duration(ttl) * time.Second)
         b.WithdrawBlackhole(targetIP)
     }()
-    
+
     return nil
 }
 
 func (b *BGPBlackholeController) WithdrawBlackhole(targetIP string) error {
     route := &api.Path{
         Family: &api.Family{
-            Afi:  api.Family_AFI_IP,
+            Afi: api.Family_AFI_IP,
             Safi: api.Family_SAFI_UNICAST,
         },
         Nlri: &api.Nlri{
             Cidr: targetIP,
         },
     }
-    
+
     _, err := b.server.DeletePath(context.Background(), &api.DeletePathRequest{
         Path: route,
     })
-    
+
     return err
 }
 ```
@@ -447,54 +447,54 @@ class AIDDoSDector:
         self.model = IsolationForest(contamination=0.1, random_state=42)
         self.scaler = StandardScaler()
         self.is_trained = False
-    
+
     async def train_model(self, historical_data: pd.DataFrame):
         """Обучение модели на исторических данных"""
         features = self.extract_features(historical_data)
         scaled_features = self.scaler.fit_transform(features)
         self.model.fit(scaled_features)
         self.is_trained = True
-    
+
     async def detect_anomaly(self, current_metrics: dict) -> dict:
         """Обнаружение аномалий в текущих метриках"""
         if not self.is_trained:
             return {"anomaly_score": 0.0, "is_anomaly": False}
-        
+
         features = self.extract_features_from_metrics(current_metrics)
         scaled_features = self.scaler.transform([features])
-        
+
         anomaly_score = self.model.decision_function(scaled_features)[0]
         is_anomaly = self.model.predict(scaled_features)[0] == -1
-        
+
         return {
             "anomaly_score": float(anomaly_score),
             "is_anomaly": bool(is_anomaly),
             "confidence": float(abs(anomaly_score))
         }
-    
+
     def extract_features(self, data: pd.DataFrame) -> np.ndarray:
         """Извлечение признаков из данных"""
         features = []
-        
+
         # Traffic volume features
         features.append(data['bytes_per_second'].values)
         features.append(data['packets_per_second'].values)
         features.append(data['connections_per_second'].values)
-        
+
         # Protocol distribution
         features.append(data['tcp_ratio'].values)
         features.append(data['udp_ratio'].values)
-        
+
         # Geographic distribution
         features.append(data['unique_countries'].values)
         features.append(data['unique_ips'].values)
-        
+
         # Time-based features
         features.append(data['request_rate'].values)
         features.append(data['error_rate'].values)
-        
+
         return np.column_stack(features)
-    
+
     def extract_features_from_metrics(self, metrics: dict) -> list:
         """Извлечение признаков из текущих метрик"""
         return [
@@ -512,7 +512,7 @@ class AIDDoSDector:
 
 ---
 
-## 📊 Мониторинг и метрики (без Cloudflare)
+## Мониторинг и метрики (без Cloudflare)
 
 ### Prometheus Metrics
 
@@ -523,24 +523,24 @@ class AIDDoSDector:
   # Edge PoP protection metrics
   - record: cloudbridge_edge_rate_limited_requests_total
     expr: sum(rate(nginx_http_requests_total{status="429"}[5m])) by (pop, tenant)
-  
+
   - record: cloudbridge_edge_blocked_requests_total
     expr: sum(rate(nginx_http_requests_total{status="403"}[5m])) by (pop, tenant)
-  
+
   - record: cloudbridge_edge_connections_active
     expr: nginx_connections_active by (pop, tenant)
-  
+
   # AI/ML detection metrics
   - record: cloudbridge_ai_anomaly_score
     expr: cloudbridge_ai_anomaly_detection_score by (pop, tenant)
-  
+
   - record: cloudbridge_ai_behavioral_score
     expr: cloudbridge_ai_behavioral_analysis_score by (pop, tenant)
-  
+
   # BGP blackhole metrics
   - record: cloudbridge_bgp_blackhole_active
     expr: cloudbridge_bgp_blackhole_routes_active by (target_ip, pop)
-  
+
   - record: cloudbridge_bgp_blackhole_effectiveness
     expr: cloudbridge_bgp_blackhole_effectiveness_ratio by (pop, tenant)
 ```
@@ -601,9 +601,9 @@ class AIDDoSDector:
 
 ---
 
-## 🎯 Преимущества архитектуры без Cloudflare
+## Преимущества архитектуры без Cloudflare
 
-### ✅ Технические преимущества
+### Технические преимущества
 
 1. **Полный контроль** - Полный контроль над логикой защиты
 2. **Кастомизация** - Возможность настройки под специфические требования
@@ -611,14 +611,14 @@ class AIDDoSDector:
 4. **Производительность** - Оптимизация под собственные нужды
 5. **Безопасность** - Данные не покидают собственную инфраструктуру
 
-### ✅ Бизнес-преимущества
+### Бизнес-преимущества
 
 1. **Независимость** - Независимость от внешних провайдеров
 2. **Compliance** - Соответствие требованиям по локализации данных
 3. **Масштабируемость** - Возможность масштабирования под собственные нужды
 4. **Интеграция** - Глубокая интеграция с собственной инфраструктурой
 
-### ✅ Функциональные возможности
+### Функциональные возможности
 
 1. **AI/ML Detection** - Интеллектуальное обнаружение атак
 2. **BGP Blackhole** - Автоматическая блокировка через BGP
@@ -628,7 +628,7 @@ class AIDDoSDector:
 
 ---
 
-## 🚀 Развертывание
+## Развертывание
 
 ### 1. Edge PoP Configuration
 
@@ -667,20 +667,20 @@ python -m app.core.ddos_detector --detect --real-time
 
 ---
 
-## 📚 Заключение
+## Заключение
 
 CloudBridge реализует **полноценную систему DDoS защиты без Cloudflare**, используя:
 
-- ✅ **Edge PoPs** с встроенной защитой
-- ✅ **BGP Blackhole Injection** для автоматической блокировки
-- ✅ **AI/ML Detection** для интеллектуального обнаружения
-- ✅ **Application Layer Protection** для защиты приложений
-- ✅ **Upstream Scrubbing** для очистки трафика
+- **Edge PoPs** с встроенной защитой
+- **BGP Blackhole Injection** для автоматической блокировки
+- **AI/ML Detection** для интеллектуального обнаружения
+- **Application Layer Protection** для защиты приложений
+- **Upstream Scrubbing** для очистки трафика
 
-**Система готова к production deployment и обеспечивает enterprise-grade защиту без зависимости от внешних сервисов!** 🛡️
+**Система готова к production deployment и обеспечивает enterprise-grade защиту без зависимости от внешних сервисов!**
 
 ---
 
-**Статус**: ✅ ГОТОВО К PRODUCTION (без Cloudflare)  
-**Версия**: 2.0  
+**Статус**: ГОТОВО К PRODUCTION (без Cloudflare)
+**Версия**: 2.0
 **Дата**: 2025-01-09
